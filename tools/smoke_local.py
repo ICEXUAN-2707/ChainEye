@@ -25,9 +25,13 @@ try:
   created=client.post('/api/v1/datasets',json={'name':f'HTTP smoke {uuid.uuid4()}','company':'CATL','year':2025});created.raise_for_status()
   with (root/'data/raw/catl_2025.pdf').open('rb') as source:
    uploaded=client.post(f"/api/v1/datasets/{created.json()['id']}/sources",files={'file':('catl_2025.pdf',source,'application/pdf')},data={'url':'https://www.catl.com/','published_date':'2026-03-01'})
-  uploaded.raise_for_status();attachment=uploaded.json();assert attachment['dataset']['version']==2;assert attachment['source']['id']=='catl-2025'
+  uploaded.raise_for_status();attachment=uploaded.json();assert attachment['dataset']['version']==3;assert attachment['source']['id']=='catl-2025';assert attachment['source']['parse_status']=='parsed'
+  extracted=client.get(f"/api/v1/datasets/{created.json()['id']}/facts?version=3");extracted.raise_for_status();candidates=extracted.json()['items'];assert len(candidates)==15;assert all(item['status']=='extracted' for item in candidates)
+  candidate=next(item for item in candidates if item['segment']=='power_battery' and item['metric']=='revenue')
+  corrected=client.patch(f"/api/v1/facts/{candidate['id']}",json={'expected_revision':1,'value':candidate['value'],'status':'verified','evidence_ids':candidate['evidence_ids'],'reason':'HTTP smoke review'});corrected.raise_for_status();assert corrected.json()['revision']==2
+  latest=client.get(f"/api/v1/datasets/{created.json()['id']}");latest.raise_for_status();assert latest.json()['version']==4
   downloaded=client.get(f"/api/v1/sources/{attachment['source']['id']}/content");downloaded.raise_for_status();assert downloaded.content.startswith(b'%PDF')
- result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'facts':30,'evidence_page':25,'pdf':True,'upload':True,'upload_version':2,'duplicate_source_reused':True,'visual_browser_check':'separate check; see R1-browser-check.json'}
+ result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'fixture_facts':30,'evidence_page':25,'pdf':True,'upload':True,'upload_version':3,'extracted_candidates':15,'correction_revision':2,'reviewed_dataset_version':4,'duplicate_source_reused':True,'visual_browser_check':'separate check; see R1-browser-check.json'}
  (root/'validation/R2-http-smoke.json').write_text(json.dumps(result,indent=2),encoding='utf-8',newline='\n');print(json.dumps(result))
 finally:
  for p in procs:

@@ -5,6 +5,7 @@ from datetime import datetime,timezone
 from uuid import uuid4
 from chain_eye.domain.datasets import Dataset,DatasetCreate,Source,SourceAttachment,DatasetSourceLimitError
 from chain_eye.domain.contracts import Fact,Evidence
+from chain_eye.domain.review import EvidenceScopeError,FactNotFoundError,FactRevisionConflictError,FactScopeError
 
 class SQLiteRepository:
     def __init__(self,path,project_root,upload_root=None):
@@ -43,6 +44,9 @@ class SQLiteRepository:
     def get_source_by_sha256(self,sha256):
         with self.connect() as db:row=db.execute('SELECT body FROM sources WHERE sha256=?',(sha256,)).fetchone()
         return Source.model_validate_json(row[0]) if row else None
+    def get_source(self,id):
+        with self.connect() as db:row=db.execute('SELECT body FROM sources WHERE id=?',(id,)).fetchone()
+        return Source.model_validate_json(row[0]) if row else None
     def attach_source(self,dataset_id,proposed_source,content_path,max_sources=5):
         with self.connect() as db:
             db.execute('BEGIN IMMEDIATE')
@@ -67,6 +71,96 @@ class SQLiteRepository:
         with self.connect() as db:
             rows=db.execute('SELECT f.body FROM dataset_facts df JOIN facts f ON f.id=df.fact_id AND f.revision=df.revision WHERE df.dataset_id=? AND df.version=? ORDER BY f.id',(id,version)).fetchall()
         return [Fact.model_validate_json(row[0]) for row in rows]
+    @staticmethod
+    def _fact_key(fact):
+        return (fact.company,fact.metric,fact.segment,fact.period_end,fact.statement_scope)
+    def apply_extraction(self,dataset_id,source_id,result):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            dataset_row=db.execute('SELECT body FROM datasets WHERE id=?',(dataset_id,)).fetchone()
+            if dataset_row is None:return None
+            current=Dataset.model_validate_json(dataset_row[0])
+            linked=db.execute('SELECT 1 FROM dataset_sources WHERE dataset_id=? AND version=? AND source_id=?',(dataset_id,current.version,source_id)).fetchone()
+            source_row=db.execute('SELECT body FROM sources WHERE id=?',(source_id,)).fetchone()
+            if linked is None or source_row is None:raise FactScopeError('source is outside current dataset')
+            source=Source.model_validate_json(source_row[0])
+            status=result.parse_status
+            if source.parse_status=='parsed' and status!='failed':status='parsed'
+            updated_source=source.model_copy(update={'parse_status':status})
+            db.execute('UPDATE sources SET body=? WHERE id=?',(updated_source.model_dump_json(),source_id))
+
+            rows=db.execute('SELECT f.body FROM dataset_facts df JOIN facts f ON f.id=df.fact_id AND f.revision=df.revision WHERE df.dataset_id=? AND df.version=?',(dataset_id,current.version)).fetchall()
+            existing_facts=[Fact.model_validate_json(row[0]) for row in rows]
+            existing={}
+            for existing_fact in existing_facts:existing.setdefault(self._fact_key(existing_fact),[]).append(existing_fact)
+            candidates=[]
+            for fact in result.facts:
+                if fact.status=='verified':raise ValueError('automatic extraction cannot verify facts')
+                key=self._fact_key(fact);prior=existing.get(key,[])
+                if not prior:
+                    candidates.append(fact);existing[key]=[fact]
+                elif fact.status!='missing' and not any((item.value,item.unit)==(fact.value,fact.unit) for item in prior):
+                    conflict=Fact.model_validate({**fact.model_dump(),'status':'conflict'})
+                    candidates.append(conflict);existing[key].append(conflict)
+            evidence_by_id={item.id:item for item in result.evidence}
+            needed={evidence_id for fact in candidates for evidence_id in fact.evidence_ids}
+            if not needed.issubset(evidence_by_id):raise EvidenceScopeError('candidate references unknown evidence')
+            for evidence_id in needed:
+                evidence=evidence_by_id[evidence_id]
+                if evidence.source_id!=source_id:raise EvidenceScopeError('evidence source mismatch')
+                prior=db.execute('SELECT body FROM evidence WHERE id=?',(evidence.id,)).fetchone()
+                if prior:
+                    if Evidence.model_validate_json(prior[0])!=evidence:raise EvidenceScopeError('evidence id collision')
+                else:db.execute('INSERT INTO evidence VALUES (?,?,?)',(evidence.id,evidence.source_id,evidence.model_dump_json()))
+            for fact in candidates:
+                prior=db.execute('SELECT body FROM facts WHERE id=? AND revision=?',(fact.id,fact.revision)).fetchone()
+                if prior:
+                    if Fact.model_validate_json(prior[0])!=fact:raise FactScopeError('fact id collision')
+                else:db.execute('INSERT INTO facts VALUES (?,?,?)',(fact.id,fact.revision,fact.model_dump_json()))
+            if not candidates:return SourceAttachment(dataset=current,source=updated_source)
+
+            new_version=current.version+1
+            updated=current.model_copy(update={'version':new_version,'data_basis':'user_uploaded'})
+            db.execute('UPDATE datasets SET current_version=?,body=? WHERE id=?',(new_version,updated.model_dump_json(),dataset_id))
+            db.execute('INSERT INTO dataset_snapshots VALUES (?,?,?)',(dataset_id,new_version,updated.model_dump_json()))
+            db.execute('INSERT INTO dataset_sources(dataset_id,version,source_id) SELECT dataset_id,?,source_id FROM dataset_sources WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
+            db.execute('INSERT INTO dataset_facts(dataset_id,version,fact_id,revision) SELECT dataset_id,?,fact_id,revision FROM dataset_facts WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
+            for fact in candidates:db.execute('INSERT INTO dataset_facts VALUES (?,?,?,?)',(dataset_id,new_version,fact.id,fact.revision))
+        return SourceAttachment(dataset=updated,source=updated_source)
+    def get_current_fact_context(self,fact_id):
+        with self.connect() as db:
+            rows=db.execute('SELECT d.body,f.body FROM datasets d JOIN dataset_facts df ON df.dataset_id=d.id AND df.version=d.current_version JOIN facts f ON f.id=df.fact_id AND f.revision=df.revision WHERE df.fact_id=?',(fact_id,)).fetchall()
+        if not rows:return None
+        if len(rows)!=1:raise FactScopeError('fact belongs to multiple current datasets')
+        return Dataset.model_validate_json(rows[0][0]),Fact.model_validate_json(rows[0][1])
+    def correct_fact(self,dataset_id,expected_revision,updated,reason):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            dataset_row=db.execute('SELECT body FROM datasets WHERE id=?',(dataset_id,)).fetchone()
+            if dataset_row is None:raise FactNotFoundError()
+            current=Dataset.model_validate_json(dataset_row[0])
+            row=db.execute('SELECT f.body FROM dataset_facts df JOIN facts f ON f.id=df.fact_id AND f.revision=df.revision WHERE df.dataset_id=? AND df.version=? AND df.fact_id=?',(dataset_id,current.version,updated.id)).fetchone()
+            if row is None:raise FactNotFoundError()
+            previous=Fact.model_validate_json(row[0])
+            if previous.revision!=expected_revision:raise FactRevisionConflictError(previous.revision)
+            if updated.revision!=previous.revision+1:raise FactRevisionConflictError(previous.revision)
+            if self._fact_key(updated)!=self._fact_key(previous) or updated.period_start!=previous.period_start or updated.period_kind!=previous.period_kind:
+                raise FactScopeError('correction changed fact identity')
+            for evidence_id in updated.evidence_ids:
+                evidence_row=db.execute('SELECT source_id FROM evidence WHERE id=?',(evidence_id,)).fetchone()
+                if evidence_row is None:raise EvidenceScopeError('evidence not found')
+                linked=db.execute('SELECT 1 FROM dataset_sources WHERE dataset_id=? AND version=? AND source_id=?',(dataset_id,current.version,evidence_row[0])).fetchone()
+                if linked is None:raise EvidenceScopeError('evidence source is outside current dataset')
+            db.execute('INSERT INTO facts VALUES (?,?,?)',(updated.id,updated.revision,updated.model_dump_json()))
+            new_version=current.version+1
+            next_dataset=current.model_copy(update={'version':new_version})
+            db.execute('UPDATE datasets SET current_version=?,body=? WHERE id=?',(new_version,next_dataset.model_dump_json(),dataset_id))
+            db.execute('INSERT INTO dataset_snapshots VALUES (?,?,?)',(dataset_id,new_version,next_dataset.model_dump_json()))
+            db.execute('INSERT INTO dataset_sources(dataset_id,version,source_id) SELECT dataset_id,?,source_id FROM dataset_sources WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
+            db.execute('INSERT INTO dataset_facts(dataset_id,version,fact_id,revision) SELECT dataset_id,?,fact_id,revision FROM dataset_facts WHERE dataset_id=? AND version=? AND fact_id<>?',(new_version,dataset_id,current.version,updated.id))
+            db.execute('INSERT INTO dataset_facts VALUES (?,?,?,?)',(dataset_id,new_version,updated.id,updated.revision))
+            db.execute('INSERT INTO fact_corrections VALUES (?,?,?,?,?,?,?)',(str(uuid4()),updated.id,previous.revision,updated.revision,reason,'local',datetime.now(timezone.utc).isoformat()))
+        return updated
     def source_path(self,id):
         with self.connect() as db:row=db.execute('SELECT content_path FROM sources WHERE id=?',(id,)).fetchone()
         if not row:return None

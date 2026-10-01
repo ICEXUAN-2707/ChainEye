@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Chain Eye API",
-    "description": "R2 upload slice: validated PDF attachment and immutable dataset versions. Extraction, correction, scenario, Agent, and report workflows are not implemented.",
+    "description": "R2 data and review workflow: validated PDF upload, deterministic candidate extraction, evidence, and immutable fact correction. Scenario, Agent, and report workflows are not implemented.",
     "version": "0.2.0"
   },
   "paths": {
