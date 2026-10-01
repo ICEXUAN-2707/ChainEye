@@ -96,4 +96,4 @@ RunCreate约束：mode=replay必须给replay_run_id；源Run属于同owner且快
 所有来源、证据、事实引用均检查dataset/version/owner，ID存在性不足以证明访问合法。
 
 ## R1实现状态与契约权威
-R1仅本机单用户。所有目标功能的实现状态以validation/R1验收记录.md为准。上传返回SourceAttachment（新版Dataset及Source），事实查询version必填。Source身份独立于数据包。HTTP DTO位于api/dto.py，领域数据位于domain；生成规范与实际路由一致。ports/services.py是后续服务协议骨架，不代表服务已实现。
+当前仍为本机单用户。R1历史实现状态见validation/R1验收记录.md；R2第一块已开放PDF上传、校验、哈希去重、数据包版本更新与来源读取，解析和人工复核仍未实现。上传返回SourceAttachment（新版Dataset及Source），事实查询version必填。Source身份独立于数据包。HTTP DTO位于api/dto.py，领域数据位于domain；生成规范与实际路由一致。ports/services.py是后续服务协议骨架，不代表服务已实现。
