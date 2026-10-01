@@ -1,0 +1,278 @@
+[
+  {
+    "fact_id": "f-2025-group-revenue",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-parent_net_profit",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-parent_adjusted_net_profit",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-operating_cash_flow",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-total_assets",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-parent_equity",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-cost_of_sales",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-inventory",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-group-accounts_receivable",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-power_battery-revenue",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-power_battery-cost_of_sales",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-power_battery-reported_gross_margin",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-energy_storage-revenue",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-energy_storage-cost_of_sales",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2025-energy_storage-reported_gross_margin",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-revenue",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-parent_net_profit",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-parent_adjusted_net_profit",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-operating_cash_flow",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-total_assets",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-parent_equity",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-cost_of_sales",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-inventory",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-group-accounts_receivable",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-power_battery-revenue",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-power_battery-cost_of_sales",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-power_battery-reported_gross_margin",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-energy_storage-revenue",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-energy_storage-cost_of_sales",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "fact_id": "f-2024-energy_storage-reported_gross_margin",
+    "check": "value_token_present_on_reviewed_page",
+    "passed": true,
+    "review": "assistant reviewed row/period/unit; human second review pending"
+  },
+  {
+    "check": "gross_margin_rounding",
+    "year": 2025,
+    "segment": "power_battery",
+    "computed_ratio": "0.2383584641230394956128039243",
+    "error_pp": "0.0041535876960504387196075700",
+    "threshold_pp": "0.005",
+    "passed": true
+  },
+  {
+    "check": "gross_margin_rounding",
+    "year": 2025,
+    "segment": "energy_storage",
+    "computed_ratio": "0.2670752574238682943032186832",
+    "error_pp": "0.0024742576131705696781316800",
+    "threshold_pp": "0.005",
+    "passed": true
+  },
+  {
+    "check": "gross_margin_rounding",
+    "year": 2024,
+    "segment": "power_battery",
+    "computed_ratio": "0.2394077415106291506829969050",
+    "error_pp": "0.0007741510629150682996905000",
+    "threshold_pp": "0.005",
+    "passed": true
+  },
+  {
+    "check": "gross_margin_rounding",
+    "year": 2024,
+    "segment": "energy_storage",
+    "computed_ratio": "0.2683947205171681288647359438",
+    "error_pp": "0.0005279482831871135264056200",
+    "threshold_pp": "0.005",
+    "passed": true
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-revenue",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-parent_net_profit",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-parent_adjusted_net_profit",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-operating_cash_flow",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-total_assets",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-parent_equity",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-inventory",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-group-accounts_receivable",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-power_battery-revenue",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  },
+  {
+    "check": "2024_value_reappears_in_2025_report",
+    "fact_id": "f-2024-energy_storage-revenue",
+    "passed": true,
+    "limitation": "presence only; not a substitute for scope review"
+  }
+]

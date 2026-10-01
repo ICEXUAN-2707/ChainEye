@@ -1,0 +1,11 @@
+{
+  "status": "passed",
+  "rows": 30,
+  "evidence_click": true,
+  "pdf_retrieval": true,
+  "viewports": [
+    1440,
+    390
+  ],
+  "page_errors": []
+}

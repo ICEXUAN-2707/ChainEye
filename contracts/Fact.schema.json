@@ -1,0 +1,174 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "revision": {
+      "default": 1,
+      "minimum": 1,
+      "title": "Revision",
+      "type": "integer"
+    },
+    "company": {
+      "title": "Company",
+      "type": "string"
+    },
+    "metric": {
+      "enum": [
+        "revenue",
+        "cost_of_sales",
+        "parent_net_profit",
+        "parent_adjusted_net_profit",
+        "operating_cash_flow",
+        "total_assets",
+        "parent_equity",
+        "inventory",
+        "accounts_receivable",
+        "reported_gross_margin"
+      ],
+      "title": "Metric",
+      "type": "string"
+    },
+    "segment": {
+      "enum": [
+        "group",
+        "power_battery",
+        "energy_storage"
+      ],
+      "title": "Segment",
+      "type": "string"
+    },
+    "statement_scope": {
+      "const": "consolidated",
+      "title": "Statement Scope",
+      "type": "string"
+    },
+    "period_kind": {
+      "enum": [
+        "annual_flow",
+        "point_in_time"
+      ],
+      "title": "Period Kind",
+      "type": "string"
+    },
+    "period_start": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period Start"
+    },
+    "period_end": {
+      "title": "Period End",
+      "type": "string"
+    },
+    "currency": {
+      "const": "CNY",
+      "default": "CNY",
+      "title": "Currency",
+      "type": "string"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Value"
+    },
+    "unit": {
+      "enum": [
+        "CNY",
+        "ratio"
+      ],
+      "title": "Unit",
+      "type": "string"
+    },
+    "raw_value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Raw Value"
+    },
+    "raw_unit": {
+      "enum": [
+        "CNY_thousand",
+        "percent"
+      ],
+      "title": "Raw Unit",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "extracted",
+        "needs_review",
+        "verified",
+        "missing",
+        "conflict"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "missing_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Missing Reason"
+    },
+    "restatement_status": {
+      "default": "unknown",
+      "enum": [
+        "not_restated",
+        "restated",
+        "unknown"
+      ],
+      "title": "Restatement Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "company",
+    "metric",
+    "segment",
+    "statement_scope",
+    "period_kind",
+    "period_end",
+    "value",
+    "unit",
+    "raw_value",
+    "raw_unit",
+    "status",
+    "evidence_ids"
+  ],
+  "title": "Fact",
+  "type": "object"
+}

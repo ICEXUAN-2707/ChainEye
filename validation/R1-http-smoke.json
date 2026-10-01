@@ -1,0 +1,10 @@
+{
+  "status": "passed",
+  "real_http": true,
+  "frontend_html": true,
+  "cors": true,
+  "facts": 30,
+  "evidence_page": 25,
+  "pdf": true,
+  "visual_browser_check": "separate check; see R1-browser-check.json"
+}

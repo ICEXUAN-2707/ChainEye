@@ -1,0 +1,52 @@
+/root/.local/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+test_contract_export_matches (test_api.API.test_contract_export_matches) ... ok
+test_create_persists (test_api.API.test_create_persists) ... ok
+test_evidence (test_api.API.test_evidence) ... ok
+test_extra_rejected (test_api.API.test_extra_rejected) ... ok
+test_facts (test_api.API.test_facts) ... ok
+test_filter (test_api.API.test_filter) ... ok
+test_health (test_api.API.test_health) ... ok
+test_idempotency_required (test_api.API.test_idempotency_required) ... ok
+test_mutation_stub (test_api.API.test_mutation_stub) ... ok
+test_notfound_uniform (test_api.API.test_notfound_uniform) ... ok
+test_origin_blocked (test_api.API.test_origin_blocked) ... ok
+test_pdf (test_api.API.test_pdf) ... ok
+test_regenerated_migration (test_api.API.test_regenerated_migration) ... ok
+test_remote_blocked (test_api.API.test_remote_blocked) ... ok
+test_replay_validation (test_api.API.test_replay_validation) ... ok
+test_scenario_stub (test_api.API.test_scenario_stub) ... ok
+test_source (test_api.API.test_source) ... ok
+test_source_hash_changed (test_api.API.test_source_hash_changed) ... ok
+test_unknown_dataset (test_api.API.test_unknown_dataset) ... ok
+test_unknown_version (test_api.API.test_unknown_version) ... ok
+test_version_required (test_api.API.test_version_required) ... ok
+test_ack_number (test_contracts.Contracts.test_ack_number) ... ok
+test_annual_partial (test_contracts.Contracts.test_annual_partial) ... ok
+test_bad_date (test_contracts.Contracts.test_bad_date) ... ok
+test_calculation_revision_set (test_contracts.Contracts.test_calculation_revision_set) ... ok
+test_extra (test_contracts.Contracts.test_extra) ... ok
+test_incomplete_result (test_contracts.Contracts.test_incomplete_result) ... ok
+test_numeric_parameter (test_contracts.Contracts.test_numeric_parameter) ... ok
+test_raw_mismatch (test_contracts.Contracts.test_raw_mismatch) ... ok
+test_run_live_replay_source (test_contracts.Contracts.test_run_live_replay_source) ... ok
+test_run_replay_no_source (test_contracts.Contracts.test_run_replay_no_source) ... ok
+test_bounds (test_scenario.Tests.test_bounds) ... ok
+test_full_pass (test_scenario.Tests.test_full_pass) ... ok
+test_half_pass (test_scenario.Tests.test_half_pass) ... ok
+test_missing (test_scenario.Tests.test_missing) ... ok
+test_negative_revenue_result (test_scenario.Tests.test_negative_revenue_result) ... ok
+test_no_pass (test_scenario.Tests.test_no_pass) ... ok
+test_nonfinite (test_scenario.Tests.test_nonfinite) ... ok
+test_required_acknowledgement (test_scenario.Tests.test_required_acknowledgement) ... ok
+test_rise (test_scenario.Tests.test_rise) ... ok
+test_scope (test_scenario.Tests.test_scope) ... ok
+test_unreviewed (test_scenario.Tests.test_unreviewed) ... ok
+test_zero_exposure (test_scenario.Tests.test_zero_exposure) ... ok
+test_zero_revenue (test_scenario.Tests.test_zero_revenue) ... ok
+test_zero_shock (test_scenario.Tests.test_zero_shock) ... ok
+
+----------------------------------------------------------------------
+Ran 45 tests in 2.131s
+
+OK

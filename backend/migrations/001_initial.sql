@@ -1,0 +1,15 @@
+PRAGMA foreign_keys=ON;
+CREATE TABLE IF NOT EXISTS datasets(id TEXT PRIMARY KEY, owner_id TEXT NOT NULL, current_version INTEGER NOT NULL, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS dataset_snapshots(dataset_id TEXT NOT NULL REFERENCES datasets(id), version INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(dataset_id,version));
+CREATE TABLE IF NOT EXISTS sources(id TEXT PRIMARY KEY, sha256 TEXT NOT NULL, content_path TEXT NOT NULL, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS dataset_sources(dataset_id TEXT NOT NULL, version INTEGER NOT NULL, source_id TEXT NOT NULL REFERENCES sources(id), PRIMARY KEY(dataset_id,version,source_id), FOREIGN KEY(dataset_id,version) REFERENCES dataset_snapshots(dataset_id,version));
+CREATE TABLE IF NOT EXISTS facts(id TEXT NOT NULL, revision INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(id,revision));
+CREATE TABLE IF NOT EXISTS dataset_facts(dataset_id TEXT NOT NULL, version INTEGER NOT NULL, fact_id TEXT NOT NULL, revision INTEGER NOT NULL, PRIMARY KEY(dataset_id,version,fact_id), FOREIGN KEY(dataset_id,version) REFERENCES dataset_snapshots(dataset_id,version), FOREIGN KEY(fact_id,revision) REFERENCES facts(id,revision));
+CREATE TABLE IF NOT EXISTS fact_corrections(id TEXT PRIMARY KEY, fact_id TEXT NOT NULL, from_revision INTEGER NOT NULL, to_revision INTEGER NOT NULL, reason TEXT NOT NULL, actor_id TEXT NOT NULL, created_at TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS evidence(id TEXT PRIMARY KEY, source_id TEXT NOT NULL REFERENCES sources(id), body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS runs(id TEXT PRIMARY KEY, dataset_id TEXT NOT NULL, dataset_version INTEGER NOT NULL, body TEXT NOT NULL, FOREIGN KEY(dataset_id,dataset_version) REFERENCES dataset_snapshots(dataset_id,version));
+CREATE TABLE IF NOT EXISTS run_events(run_id TEXT NOT NULL REFERENCES runs(id), seq INTEGER NOT NULL, body TEXT NOT NULL, PRIMARY KEY(run_id,seq));
+CREATE TABLE IF NOT EXISTS calculations(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS scenarios(id TEXT PRIMARY KEY, body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS reports(run_id TEXT PRIMARY KEY REFERENCES runs(id), body TEXT NOT NULL);
+CREATE TABLE IF NOT EXISTS idempotency(scope TEXT NOT NULL, key TEXT NOT NULL, body_hash TEXT NOT NULL, response_body TEXT NOT NULL, expires_at TEXT NOT NULL, PRIMARY KEY(scope,key));

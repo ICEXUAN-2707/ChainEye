@@ -1,0 +1,8 @@
+{
+  "python": "3.12.14",
+  "pydantic": "2.13.5",
+  "pymupdf": "1.26.6",
+  "production_dependency_lock": "backend/requirements.lock; Linux clean Python3.12 environment passed",
+  "node": "v24.19.0",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.39"
+}

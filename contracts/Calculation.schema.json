@@ -1,0 +1,91 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "formula_id": {
+      "title": "Formula Id",
+      "type": "string"
+    },
+    "formula_version": {
+      "title": "Formula Version",
+      "type": "string"
+    },
+    "input_fact_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Fact Ids",
+      "type": "array"
+    },
+    "input_revisions": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Input Revisions",
+      "type": "object"
+    },
+    "assumption_snapshot": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Assumption Snapshot",
+      "type": "object"
+    },
+    "value": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Value"
+    },
+    "unit": {
+      "enum": [
+        "CNY",
+        "ratio",
+        "pp"
+      ],
+      "title": "Unit",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "computed",
+        "not_computable"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    }
+  },
+  "required": [
+    "id",
+    "formula_id",
+    "formula_version",
+    "input_fact_ids",
+    "input_revisions",
+    "assumption_snapshot",
+    "value",
+    "unit",
+    "status"
+  ],
+  "title": "Calculation",
+  "type": "object"
+}

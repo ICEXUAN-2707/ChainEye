@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "revenue": {
+      "title": "Revenue",
+      "type": "string"
+    },
+    "cost_of_sales": {
+      "title": "Cost Of Sales",
+      "type": "string"
+    },
+    "gross_profit": {
+      "title": "Gross Profit",
+      "type": "string"
+    },
+    "gross_margin": {
+      "title": "Gross Margin",
+      "type": "string"
+    },
+    "delta_gross_profit": {
+      "title": "Delta Gross Profit",
+      "type": "string"
+    },
+    "delta_gross_margin_pp": {
+      "title": "Delta Gross Margin Pp",
+      "type": "string"
+    },
+    "delta_cost": {
+      "title": "Delta Cost",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revenue",
+    "cost_of_sales",
+    "gross_profit",
+    "gross_margin",
+    "delta_gross_profit",
+    "delta_gross_margin_pp",
+    "delta_cost"
+  ],
+  "title": "ScenarioOutputs",
+  "type": "object"
+}

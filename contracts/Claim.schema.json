@@ -1,0 +1,82 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "fact",
+        "calculation",
+        "inference",
+        "opinion",
+        "hypothesis"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "text": {
+      "title": "Text",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "calculation_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Calculation Ids",
+      "type": "array"
+    },
+    "assumption_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumption Ids",
+      "type": "array"
+    },
+    "counter_evidence_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Counter Evidence Ids",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "review_status": {
+      "enum": [
+        "pending",
+        "supported",
+        "insufficient",
+        "rejected"
+      ],
+      "title": "Review Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "kind",
+    "text",
+    "evidence_ids",
+    "calculation_ids",
+    "assumption_ids",
+    "counter_evidence_ids",
+    "limitations",
+    "review_status"
+  ],
+  "title": "Claim",
+  "type": "object"
+}

@@ -1,0 +1,211 @@
+{
+  "$defs": {
+    "Assumptions": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_exposure": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "title": "Cost Exposure",
+          "type": "string"
+        },
+        "effective_price_shock": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "title": "Effective Price Shock",
+          "type": "string"
+        },
+        "customer_pass_through": {
+          "pattern": "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?$",
+          "title": "Customer Pass Through",
+          "type": "string"
+        },
+        "basis": {
+          "enum": [
+            "user_assumption",
+            "research_assumption"
+          ],
+          "title": "Basis",
+          "type": "string"
+        },
+        "acknowledged": {
+          "const": true,
+          "title": "Acknowledged",
+          "type": "boolean"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "cost_exposure",
+        "effective_price_shock",
+        "customer_pass_through",
+        "basis",
+        "acknowledged"
+      ],
+      "title": "Assumptions",
+      "type": "object"
+    },
+    "ScenarioBaseline": {
+      "additionalProperties": false,
+      "properties": {
+        "revenue": {
+          "title": "Revenue",
+          "type": "string"
+        },
+        "cost_of_sales": {
+          "title": "Cost Of Sales",
+          "type": "string"
+        },
+        "gross_profit": {
+          "title": "Gross Profit",
+          "type": "string"
+        },
+        "gross_margin": {
+          "title": "Gross Margin",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revenue",
+        "cost_of_sales",
+        "gross_profit",
+        "gross_margin"
+      ],
+      "title": "ScenarioBaseline",
+      "type": "object"
+    },
+    "ScenarioOutputs": {
+      "additionalProperties": false,
+      "properties": {
+        "revenue": {
+          "title": "Revenue",
+          "type": "string"
+        },
+        "cost_of_sales": {
+          "title": "Cost Of Sales",
+          "type": "string"
+        },
+        "gross_profit": {
+          "title": "Gross Profit",
+          "type": "string"
+        },
+        "gross_margin": {
+          "title": "Gross Margin",
+          "type": "string"
+        },
+        "delta_gross_profit": {
+          "title": "Delta Gross Profit",
+          "type": "string"
+        },
+        "delta_gross_margin_pp": {
+          "title": "Delta Gross Margin Pp",
+          "type": "string"
+        },
+        "delta_cost": {
+          "title": "Delta Cost",
+          "type": "string"
+        }
+      },
+      "required": [
+        "revenue",
+        "cost_of_sales",
+        "gross_profit",
+        "gross_margin",
+        "delta_gross_profit",
+        "delta_gross_margin_pp",
+        "delta_cost"
+      ],
+      "title": "ScenarioOutputs",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "scenario_id": {
+      "title": "Scenario Id",
+      "type": "string"
+    },
+    "model_version": {
+      "title": "Model Version",
+      "type": "string"
+    },
+    "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "minimum": 1,
+      "title": "Dataset Version",
+      "type": "integer"
+    },
+    "revenue_fact_id": {
+      "title": "Revenue Fact Id",
+      "type": "string"
+    },
+    "cost_fact_id": {
+      "title": "Cost Fact Id",
+      "type": "string"
+    },
+    "input_revisions": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Input Revisions",
+      "type": "object"
+    },
+    "assumption_id": {
+      "title": "Assumption Id",
+      "type": "string"
+    },
+    "baseline": {
+      "$ref": "#/$defs/ScenarioBaseline"
+    },
+    "assumptions": {
+      "$ref": "#/$defs/Assumptions"
+    },
+    "outputs": {
+      "$ref": "#/$defs/ScenarioOutputs"
+    },
+    "calculation_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Calculation Ids",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "mode": {
+      "const": "conditional_scenario",
+      "default": "conditional_scenario",
+      "title": "Mode",
+      "type": "string"
+    }
+  },
+  "required": [
+    "scenario_id",
+    "model_version",
+    "dataset_id",
+    "dataset_version",
+    "revenue_fact_id",
+    "cost_fact_id",
+    "input_revisions",
+    "assumption_id",
+    "baseline",
+    "assumptions",
+    "outputs",
+    "calculation_ids",
+    "limitations"
+  ],
+  "title": "ScenarioResult",
+  "type": "object"
+}

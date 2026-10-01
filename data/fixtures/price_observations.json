@@ -1,0 +1,34 @@
+[
+  {
+    "id": "smm-battery-carbonate-spot-mid-20251231",
+    "series_id": "smm-battery-carbonate-spot-mid",
+    "price_date": "2025-12-31",
+    "value": "118500",
+    "unit": "CNY_per_tonne",
+    "quote_kind": "spot",
+    "source_url": "https://news.smm.cn/live/detail/103700515",
+    "source_sha256": "d152f813d3ca034ee256af64374a638b8d901bbd3a9f031ccb8241a7b6bf0609",
+    "source_published_at": "2025-12-31T15:14:58+08:00",
+    "coverage_status": "single_day_sample",
+    "tax_basis": "unknown",
+    "region": "unknown",
+    "specification": "battery-grade lithium carbonate; exact methodology pending verification",
+    "usable_for_historical_average": false
+  },
+  {
+    "id": "smm-battery-carbonate-index-20251231",
+    "series_id": "smm-battery-carbonate-index",
+    "price_date": "2025-12-31",
+    "value": "117373",
+    "unit": "CNY_per_tonne",
+    "quote_kind": "index",
+    "source_url": "https://news.smm.cn/live/detail/103700515",
+    "source_sha256": "d152f813d3ca034ee256af64374a638b8d901bbd3a9f031ccb8241a7b6bf0609",
+    "source_published_at": "2025-12-31T15:14:58+08:00",
+    "coverage_status": "single_day_sample",
+    "tax_basis": "unknown",
+    "region": "unknown",
+    "specification": "battery-grade lithium carbonate; exact methodology pending verification",
+    "usable_for_historical_average": false
+  }
+]

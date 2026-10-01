@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "revenue": {
+      "title": "Revenue",
+      "type": "string"
+    },
+    "cost_of_sales": {
+      "title": "Cost Of Sales",
+      "type": "string"
+    },
+    "gross_profit": {
+      "title": "Gross Profit",
+      "type": "string"
+    },
+    "gross_margin": {
+      "title": "Gross Margin",
+      "type": "string"
+    }
+  },
+  "required": [
+    "revenue",
+    "cost_of_sales",
+    "gross_profit",
+    "gross_margin"
+  ],
+  "title": "ScenarioBaseline",
+  "type": "object"
+}

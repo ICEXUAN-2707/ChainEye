@@ -1,0 +1,7 @@
+{
+  "status": "partial",
+  "historical_mode_enabled": false,
+  "observation_count": 2,
+  "unique_dates": 1,
+  "reason": "Only one date verified. Do not merge index with spot. Methodology and redistribution terms not verified."
+}
