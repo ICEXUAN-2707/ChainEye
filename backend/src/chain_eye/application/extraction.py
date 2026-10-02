@@ -7,17 +7,13 @@ from chain_eye.adapters.pymupdf import PyMuPDFParser
 from chain_eye.application.errors import AppError
 from chain_eye.application.source_upload import sha256_file
 from chain_eye.domain.contracts import Evidence,Fact
+from chain_eye.domain.decimal_values import decimal_text
 from chain_eye.domain.extraction import ExtractionError,ExtractionResult
 
 NUMBER=re.compile(r'^-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$')
 BALANCE_METRICS={'total_assets','parent_equity','inventory','accounts_receivable'}
 
 def normalized(text):return re.sub(r'[\s:：（）()]','',text)
-
-def decimal_text(value):
-    text=format(value,'f')
-    if '.' in text:text=text.rstrip('0').rstrip('.')
-    return '0' if text in ('','-0') else text
 
 def report_year(document):
     years=[]
