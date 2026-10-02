@@ -2,21 +2,7 @@ from typing import Literal
 from pydantic import Field, model_validator
 from chain_eye.domain.contracts import Contract, Fact, Evidence, Assumptions, Claim, Calculation, ScenarioResult, ErrorBody, AssumptionRecord, DecimalText
 
-from chain_eye.domain.datasets import DatasetCreate,Dataset
-
-class Source(Contract):
-    id: str
-    filename: str
-    sha256: str = Field(pattern=r'^[0-9a-f]{64}$')
-    media_type: Literal['application/pdf','text/csv']
-    page_count: int | None = Field(default=None,ge=1)
-    url: str | None
-    published_date: str | None
-    parse_status: Literal['queued','parsed','needs_review','failed']
-    data_basis: Literal['reviewed_fixture','user_uploaded']
-class SourceAttachment(Contract):
-    dataset: Dataset
-    source: Source
+from chain_eye.domain.datasets import DatasetCreate,Dataset,Source,SourceAttachment
 class FactCollection(Contract):
     dataset_id: str
     dataset_version: int = Field(ge=1)
@@ -32,6 +18,7 @@ class FactCorrection(Contract):
     @model_validator(mode='after')
     def values(self):
         if self.status=='missing' and (self.value is not None or not self.missing_reason):raise ValueError('missing needs null/reason')
+        if self.status=='missing' and self.raw_value is not None:raise ValueError('missing raw value must be null')
         if self.status!='missing' and self.value is None:raise ValueError('value required')
         if self.status=='verified' and not self.evidence_ids:raise ValueError('evidence required')
         return self

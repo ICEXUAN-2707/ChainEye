@@ -1,13 +1,13 @@
-# 链眼 宁德时代 R1 交付包 v0.2
+# 链眼 宁德时代 R2 数据与复核后端
 
-冻结日期：2026-09-30。两名开发者从本包同一契约开始，Codex负责后端，Claude负责前端。
+R1基线冻结日期：2026-09-30。两名开发者从同一契约开始，Codex负责后端，Claude负责前端。
 先读 `docs/06_严格交叉自检.md` 和 `validation/R1验收记录.md`，再读PRD、Spec及各自 `tasks/` 任务书。
 
 ## 实际完成范围
 30条财报标注再次核对原件，未发现数值错误。R0的44项检查保留，不能视为自动提取准确率。
 R1实现SQLite迁移与持久化、版本快照读取、核对样本seed、事实筛选、来源与证据查看、PDF服务、统一错误、生成契约及React工作台。
 45项测试、干净Python环境安装、前端构建及真实HTTP联调通过。详细命令与限制见验收记录。
-上传、更正、HTTP情景计算、Agent、DeepSeek和报告尚未实现；写入口返回501。纯Decimal计算内核可测试。
+R2后端已在上传块之上实现PyMuPDF文本层解析、限定版式候选事实提取、PDF页码/bbox证据定位及人工更正的revision/version原子事务。自动候选只写`extracted`、`missing`或`conflict`，不会写`verified`。HTTP情景计算、Agent、DeepSeek和报告仍未实现；相应写入口返回501。纯Decimal计算内核可测试。
 价格仅一个日期两个不同系列，不能做历史均价或回测。标注仍是助手复核样本，团队人工签核待完成。
 
 ## 安装与启动
@@ -39,6 +39,25 @@ python tools/smoke_local.py
 ```
 单一来源是后端路由、DTO及domain模型；`contracts/openapi.json`、Schema、`frontend/src/api/generated.ts`均为生成产物。不得手改第二套类型。
 v0.2包含破坏性契约收紧，禁止与v0.1客户端混用。金额为人民币元十进制字符串；原文千元保留。所有财务结果由后端计算。
+
+## R2 PDF上传与复核联调
+
+先创建数据包，再以`multipart/form-data`上传。`file`必填，`url`和`published_date`可选：
+
+```bash
+curl -X POST http://127.0.0.1:8000/api/v1/datasets \
+  -H "Content-Type: application/json" \
+  -d '{"name":"上传测试","company":"CATL","year":2025}'
+
+curl -X POST http://127.0.0.1:8000/api/v1/datasets/<dataset_id>/sources \
+  -F "file=@report.pdf;type=application/pdf" \
+  -F "url=https://example.com/report.pdf" \
+  -F "published_date=2026-09-30"
+```
+
+响应沿用生成契约`SourceAttachment`，返回上传及同步确定性提取完成后的最新数据包版本。来源关联与新增候选事实分别形成不可变快照，因此首次支持的年报上传可能连续增加两个版本；前端必须始终使用响应中的`dataset.version`读取事实。同数据包同哈希重复上传不增加版本。限制为30 MiB、500页、每数据包5个来源，只接受未加密PDF；扫描件或不受支持的版式为`needs_review`。
+
+当前确定性提取器只支持仓库规格冻结的宁德时代2024/2025文本层年报版式，要求同时识别报告年份、表头、行名、千元单位及合并口径。其他公司、年份、版式和扫描件不猜测数值，也不启用OCR或LLM。人工复核继续使用既有`PATCH /api/v1/facts/{id}`契约；`expected_revision`冲突返回409，更正生成新Fact revision和Dataset版本，旧快照保持可读。
 
 ## 协作与交付
 `tasks/Codex_后端任务.md` 与 `tasks/Claude_前端任务.md`规定边界及R2要求。两人先各自复现R1，互审一个关键流程，再进入上传与复核闭环。

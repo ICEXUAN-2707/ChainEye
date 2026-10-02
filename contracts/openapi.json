@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Chain Eye API",
-    "description": "R1 local skeleton; reviewed fixtures. Agent, upload, correction, and scenario HTTP workflow not implemented.",
+    "description": "R2 data and review workflow: validated PDF upload, deterministic candidate extraction, evidence, and immutable fact correction. Scenario, Agent, and report workflows are not implemented.",
     "version": "0.2.0"
   },
   "paths": {
@@ -108,7 +108,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -229,7 +229,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -355,7 +355,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -474,7 +474,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -637,7 +637,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -756,7 +756,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -877,7 +877,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -986,7 +986,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1118,7 +1118,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1237,7 +1237,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1358,7 +1358,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1467,7 +1467,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1576,7 +1576,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1685,7 +1685,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1801,7 +1801,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1937,7 +1937,7 @@
             }
           },
           "501": {
-            "description": "not implemented in R1",
+            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
