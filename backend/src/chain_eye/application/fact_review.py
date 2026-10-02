@@ -4,12 +4,8 @@ from pydantic import ValidationError
 
 from chain_eye.application.errors import AppError
 from chain_eye.domain.contracts import Fact
+from chain_eye.domain.decimal_values import decimal_text
 from chain_eye.domain.review import EvidenceScopeError,FactNotFoundError,FactRevisionConflictError,FactScopeError
-
-def decimal_text(value):
-    text=format(value,'f')
-    if '.' in text:text=text.rstrip('0').rstrip('.')
-    return '0' if text in ('','-0') else text
 
 class FactReviewService:
     def __init__(self,repository):self.repository=repository
