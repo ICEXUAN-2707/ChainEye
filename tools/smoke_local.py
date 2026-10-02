@@ -1,6 +1,6 @@
 """Start both processes together; check real local HTTP, not browser visual rendering."""
 import subprocess,os,sys,time,json,signal,urllib.request,uuid
-import httpx
+import httpx2 as httpx
 from pathlib import Path
 root=Path(__file__).resolve().parents[1];procs=[]
 def get(url,origin=None):
