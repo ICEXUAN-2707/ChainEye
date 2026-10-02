@@ -1,5 +1,6 @@
 """Start both processes together; check real local HTTP, not browser visual rendering."""
-import subprocess,os,sys,time,json,signal,urllib.request
+import subprocess,os,sys,time,json,signal,urllib.request,uuid
+import httpx
 from pathlib import Path
 root=Path(__file__).resolve().parents[1];procs=[]
 def get(url,origin=None):
@@ -20,13 +21,19 @@ try:
  assert headers.get('access-control-allow-origin',headers.get('Access-Control-Allow-Origin'))=='http://127.0.0.1:5173'
  _,_,body=get('http://127.0.0.1:8000/api/v1/evidence/e-2025-power_battery-revenue');assert json.loads(body)['pdf_page']==25
  _,headers,body=get('http://127.0.0.1:8000/api/v1/sources/catl-2025/content');assert body.startswith(b'%PDF')
- result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'facts':30,'evidence_page':25,'pdf':True,'visual_browser_check':'separate check; see R1-browser-check.json'}
- (root/'validation/R1-http-smoke.json').write_text(json.dumps(result,indent=2),encoding='utf-8',newline='\n');print(json.dumps(result))
+ with httpx.Client(base_url='http://127.0.0.1:8000',headers={'Origin':'http://127.0.0.1:5173'},timeout=30) as client:
+  created=client.post('/api/v1/datasets',json={'name':f'HTTP smoke {uuid.uuid4()}','company':'CATL','year':2025});created.raise_for_status()
+  with (root/'data/raw/catl_2025.pdf').open('rb') as source:
+   uploaded=client.post(f"/api/v1/datasets/{created.json()['id']}/sources",files={'file':('catl_2025.pdf',source,'application/pdf')},data={'url':'https://www.catl.com/','published_date':'2026-03-01'})
+  uploaded.raise_for_status();attachment=uploaded.json();assert attachment['dataset']['version']==2;assert attachment['source']['id']=='catl-2025'
+  downloaded=client.get(f"/api/v1/sources/{attachment['source']['id']}/content");downloaded.raise_for_status();assert downloaded.content.startswith(b'%PDF')
+ result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'facts':30,'evidence_page':25,'pdf':True,'upload':True,'upload_version':2,'duplicate_source_reused':True,'visual_browser_check':'separate check; see R1-browser-check.json'}
+ (root/'validation/R2-http-smoke.json').write_text(json.dumps(result,indent=2),encoding='utf-8',newline='\n');print(json.dumps(result))
 finally:
  for p in procs:
   if p.poll() is None:
    if os.name=='posix':os.killpg(p.pid,signal.SIGTERM)
-   else:p.terminate()
+   else:subprocess.run(['taskkill','/PID',str(p.pid),'/T','/F'],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
  for p in procs:
   try:p.wait(timeout=5)
   except subprocess.TimeoutExpired:p.kill()

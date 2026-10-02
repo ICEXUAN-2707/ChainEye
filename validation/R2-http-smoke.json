@@ -6,5 +6,8 @@
   "facts": 30,
   "evidence_page": 25,
   "pdf": true,
+  "upload": true,
+  "upload_version": 2,
+  "duplicate_source_reused": true,
   "visual_browser_check": "separate check; see R1-browser-check.json"
 }
