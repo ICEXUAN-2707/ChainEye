@@ -7,6 +7,7 @@ import {UploadPanel} from './components/UploadPanel';
 import {FactTable} from './components/FactTable';
 import {ReviewForm} from './components/ReviewForm';
 import {ScenarioPanel} from './components/ScenarioPanel';
+import {DiagnosticPanel} from './components/DiagnosticPanel';
 
 function message(e:unknown){return e instanceof ApiError?`${e.message}（${e.payload.error.code}，${e.payload.error.request_id}）`:e instanceof Error?e.message:'无法读取数据';}
 const SEGMENTS=['all','group','power_battery','energy_storage'];
@@ -18,7 +19,7 @@ function App(){
   const [facts,setFacts]=useState<Fact[]>([]);
   const [segment,setSegment]=useState('all');
   const [statusF,setStatusF]=useState('all');
-  const [view,setView]=useState<'review'|'research'>('review');
+  const [view,setView]=useState<'review'|'diagnostic'|'research'>('review');
   const [reviewing,setReviewing]=useState<Fact|null>(null);
   const [evidence,setEvidence]=useState<Evidence|null>(null);
   const [evidenceLoading,setEvidenceLoading]=useState(false);
@@ -85,6 +86,7 @@ function App(){
     <UploadPanel datasetId={selected} onUploaded={onUploaded}/>
     <nav className="tabs">
       <button className={view==='review'?'tab active':'tab'} onClick={()=>setView('review')}>数据复核</button>
+      <button className={view==='diagnostic'?'tab active':'tab'} onClick={()=>setView('diagnostic')}>财务诊断</button>
       <button className={view==='research'?'tab active':'tab'} onClick={()=>setView('research')}>情景研究</button>
     </nav>
     <section className="controls">
@@ -98,7 +100,9 @@ function App(){
       ?<section className="panel"><h2>财务事实复核</h2>{reviewing
         ?<ReviewForm key={`${reviewing.id}:${reviewing.revision??1}`} fact={reviewing} evidence={evidence} evidenceLoading={evidenceLoading} evidenceError={evidenceError} onClose={()=>setReviewing(null)} onSaved={onSaved} onReload={onReload}/>
         :<FactTable facts={visible} onSelect={setReviewing} onEvidence={setReviewing}/>}</section>
-      :(d?<ScenarioPanel dataset={d} facts={facts}/>:<p>请先选择数据包。</p>)}
+      :view==='diagnostic'
+        ?<DiagnosticPanel facts={facts}/>
+        :(d?<ScenarioPanel dataset={d} facts={facts}/>:<p>请先选择数据包。</p>)}
   </main>;
 }
 export default App;

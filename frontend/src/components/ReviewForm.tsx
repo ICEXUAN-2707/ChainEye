@@ -67,12 +67,14 @@ export function ReviewForm({fact,evidence,evidenceLoading,evidenceError,onClose,
         <div className="review-actions"><button onClick={submit} disabled={!canSubmit}>{busy?'提交中…':'提交复核'}</button></div>
       </div>
       <div className="evidence">
-        <h3>原文证据</h3>
+        <h3>原文证据 · 溯源链</h3>
         {evidenceLoading?<p role="status">正在读取原文证据…</p>:evidenceError?<p role="alert" className="error">{evidenceError}<button className="inline" onClick={()=>void onReload()}>重新读取</button></p>:evidenceMatches?<>
-          <p>PDF 第 {evidence.pdf_page} 页 · 印刷页码 {evidence.printed_page}</p>
-          <pre>{evidence.excerpt}</pre>
-          <a target="_blank" rel="noreferrer" href={`${BASE_URL}/api/v1/sources/${encodeURIComponent(evidence.source_id)}/content#page=${evidence.pdf_page}`}>打开原始 PDF</a>
-          <p className="muted">当前原值 {fmtRaw(fact.raw_value,fact.raw_unit)}，规范值 {fmtAmount(fact.value,fact.unit)}</p>
+          <ol className="trace">
+            <li>事实：原值 {fmtRaw(fact.raw_value,fact.raw_unit)}，规范值 {fmtAmount(fact.value,fact.unit)}</li>
+            <li>定位：PDF 第 {evidence.pdf_page} 页 · 印刷页码 {evidence.printed_page}{evidence.bbox?` · 坐标 [${evidence.bbox.map(n=>Math.round(n)).join(', ')}]`:''}</li>
+            <li>原文：<pre>{evidence.excerpt}</pre><a target="_blank" rel="noreferrer" href={`${BASE_URL}/api/v1/sources/${encodeURIComponent(evidence.source_id)}/content#page=${evidence.pdf_page}`}>打开原始 PDF</a></li>
+          </ol>
+          <p className="muted mono">来源 {evidence.source_id} · SHA256 {evidence.sha256.slice(0,12)}…</p>
         </>:<p>该事实暂无关联证据，无法对照原文。</p>}
       </div>
     </div>
