@@ -4,6 +4,7 @@ import fitz
 from fastapi.testclient import TestClient
 from chain_eye.api.app import create_app
 from chain_eye.api.dto import FactCollection,Dataset,ErrorResponse
+from chain_eye.domain.contracts import Evidence
 ROOT=Path(__file__).resolve().parents[1]
 def pdf_bytes(text='uploaded text',pages=1,encryption=False):
  doc=fitz.open()
@@ -18,7 +19,7 @@ class API(unittest.TestCase):
  def tearDown(self):self.client.close();self.tmp.cleanup()
  def check_error(self,response,status,code):
   self.assertEqual(response.status_code,status);e=ErrorResponse.model_validate(response.json());self.assertEqual(e.error.code,code);self.assertTrue(e.error.request_id)
- def test_health(self):self.assertEqual(self.client.get('/health').json()['stage'],'R2-upload')
+ def test_health(self):self.assertEqual(self.client.get('/health').json()['stage'],'R2')
  def test_facts(self):
   r=self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1');self.assertEqual(r.status_code,200);data=FactCollection.model_validate(r.json());self.assertEqual(len(data.items),30)
  def test_filter(self):self.assertEqual(len(self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1&segment=power_battery').json()['items']),6)
@@ -44,7 +45,7 @@ class API(unittest.TestCase):
  def test_upload_versions_snapshot_and_content(self):
   body=pdf_bytes('versioned upload');expected_hash=hashlib.sha256(body).hexdigest()
   r=self.upload('demo-catl-2025',body,filename='../report.pdf',url='https://example.com/report.pdf',published_date='2026-09-30')
-  self.assertEqual(r.status_code,201);attachment=r.json();self.assertEqual(attachment['dataset']['version'],2);self.assertEqual(attachment['source']['filename'],'report.pdf');self.assertEqual(attachment['source']['sha256'],expected_hash);self.assertEqual(attachment['source']['parse_status'],'queued')
+  self.assertEqual(r.status_code,201);attachment=r.json();self.assertEqual(attachment['dataset']['version'],2);self.assertEqual(attachment['source']['filename'],'report.pdf');self.assertEqual(attachment['source']['sha256'],expected_hash);self.assertEqual(attachment['source']['parse_status'],'needs_review')
   self.assertEqual(set(self.client.get('/api/v1/datasets/demo-catl-2025?version=1').json()['source_ids']),{'catl-2024','catl-2025'})
   self.assertEqual(len(self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=2').json()['items']),30)
   content=self.client.get(f"/api/v1/sources/{attachment['source']['id']}/content");self.assertEqual(content.status_code,200);self.assertEqual(content.content,body)
@@ -72,9 +73,59 @@ class API(unittest.TestCase):
   r=self.upload(dataset['id'],pdf_bytes('sixth'));self.check_error(r,422,'INVALID_INPUT');self.assertEqual(r.json()['error']['details']['reason'],'SOURCE_LIMIT');self.assertEqual(len(list(self.upload_dir.glob('*.pdf'))),5)
  def test_upload_metadata_validation(self):
   dataset=self.create_dataset();self.check_error(self.upload(dataset['id'],published_date='2026-02-30'),422,'INVALID_INPUT');self.check_error(self.upload(dataset['id'],url='file:///secret.pdf'),422,'INVALID_INPUT')
- def test_correction_remains_explicitly_unimplemented(self):
-  body={'expected_revision':1,'value':'1','raw_value':'0.001','status':'verified','evidence_ids':['e-2025-power_battery-revenue'],'reason':'test only'}
-  self.check_error(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body),501,'NOT_IMPLEMENTED')
+ def test_real_report_upload_extracts_15_candidates_and_evidence(self):
+  dataset=self.create_dataset();body=(ROOT/'data/raw/catl_2025.pdf').read_bytes()
+  response=self.upload(dataset['id'],body,filename='catl-2025.pdf')
+  self.assertEqual(response.status_code,201);attachment=response.json()
+  self.assertEqual(attachment['dataset']['version'],3);self.assertEqual(attachment['source']['parse_status'],'parsed')
+  self.assertEqual(self.client.get(f"/api/v1/datasets/{dataset['id']}/facts?version=2").json()['items'],[])
+  facts=self.client.get(f"/api/v1/datasets/{dataset['id']}/facts?version=3").json()['items']
+  self.assertEqual(len(facts),15);self.assertTrue(all(fact['status']=='extracted' for fact in facts))
+  evidence=self.client.get(f"/api/v1/evidence/{facts[0]['evidence_ids'][0]}")
+  self.assertEqual(evidence.status_code,200);self.assertEqual(evidence.json()['source_id'],attachment['source']['id']);self.assertEqual(len(evidence.json()['bbox']),4)
+  duplicate=self.upload(dataset['id'],body,filename='duplicate.pdf')
+  self.assertEqual(duplicate.status_code,201);self.assertEqual(duplicate.json()['dataset']['version'],3)
+ def test_correction_creates_fact_revision_dataset_version_and_log(self):
+  body={'expected_revision':1,'value':'316506370000','status':'verified','evidence_ids':['e-2025-power_battery-revenue'],'reason':'checked against annual report'}
+  response=self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body)
+  self.assertEqual(response.status_code,200);self.assertEqual(response.json()['revision'],2);self.assertEqual(response.json()['raw_value'],'316506370')
+  self.assertEqual(self.client.get('/api/v1/datasets/demo-catl-2025').json()['version'],2)
+  old=self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1').json()['items'];new=self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=2').json()['items']
+  self.assertEqual(next(f for f in old if f['id']=='f-2025-power_battery-revenue')['revision'],1)
+  self.assertEqual(next(f for f in new if f['id']=='f-2025-power_battery-revenue')['revision'],2)
+  with self.app.state.repository.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM fact_corrections WHERE fact_id=?',('f-2025-power_battery-revenue',)).fetchone()[0],1)
+ def test_correction_revision_conflict_is_atomic(self):
+  body={'expected_revision':1,'value':'316506370000','status':'verified','evidence_ids':['e-2025-power_battery-revenue'],'reason':'first review'}
+  self.assertEqual(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body).status_code,200)
+  self.check_error(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body),409,'REVISION_CONFLICT')
+  self.assertEqual(self.client.get('/api/v1/datasets/demo-catl-2025').json()['version'],2)
+ def test_correction_derives_percent_raw_value(self):
+  body={'expected_revision':1,'value':'0.2385','status':'verified','evidence_ids':['e-2025-power_battery-reported_gross_margin'],'reason':'margin review'}
+  response=self.client.patch('/api/v1/facts/f-2025-power_battery-reported_gross_margin',json=body)
+  self.assertEqual(response.status_code,200);self.assertEqual(response.json()['raw_value'],'23.85')
+ def test_correction_rejects_raw_normalized_mismatch(self):
+  body={'expected_revision':1,'value':'316506370000','raw_value':'1','status':'verified','evidence_ids':['e-2025-power_battery-revenue'],'reason':'mismatched units'}
+  self.check_error(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body),422,'INVALID_INPUT')
+  self.assertEqual(self.client.get('/api/v1/datasets/demo-catl-2025').json()['version'],1)
+ def test_correction_rejects_unknown_evidence_without_writes(self):
+  body={'expected_revision':1,'value':'316506370000','status':'verified','evidence_ids':['not-in-dataset'],'reason':'invalid evidence'}
+  self.check_error(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body),409,'SCOPE_MISMATCH')
+  self.assertEqual(self.client.get('/api/v1/datasets/demo-catl-2025').json()['version'],1)
+  with self.app.state.repository.connect() as db:self.assertEqual(db.execute('SELECT COUNT(*) FROM facts WHERE id=?',('f-2025-power_battery-revenue',)).fetchone()[0],1)
+ def test_correction_rejects_evidence_from_another_dataset(self):
+  other=self.create_dataset('other evidence owner');attachment=self.upload(other['id'],pdf_bytes('separate source')).json();source=attachment['source']
+  evidence=Evidence(id='cross-dataset-evidence',source_id=source['id'],locator_kind='pdf',pdf_page=1,excerpt='separate source',sha256=source['sha256'])
+  with self.app.state.repository.connect() as db:db.execute('INSERT INTO evidence VALUES (?,?,?)',(evidence.id,evidence.source_id,evidence.model_dump_json()))
+  body={'expected_revision':1,'value':'316506370000','status':'verified','evidence_ids':[evidence.id],'reason':'wrong dataset evidence'}
+  self.check_error(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body),409,'SCOPE_MISMATCH')
+  self.assertEqual(self.client.get('/api/v1/datasets/demo-catl-2025').json()['version'],1)
+ def test_missing_correction_requires_null_raw_value(self):
+  body={'expected_revision':1,'value':None,'raw_value':'1','status':'missing','evidence_ids':[],'reason':'not disclosed','missing_reason':'not disclosed'}
+  self.check_error(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body),422,'INVALID_INPUT')
+ def test_missing_correction_keeps_null_semantics(self):
+  body={'expected_revision':1,'value':None,'status':'missing','evidence_ids':[],'reason':'not disclosed after review','missing_reason':'not disclosed'}
+  response=self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body)
+  self.assertEqual(response.status_code,200);self.assertIsNone(response.json()['value']);self.assertIsNone(response.json()['raw_value']);self.assertEqual(response.json()['revision'],2)
  def test_scenario_stub(self):
   body=dict(dataset_id='demo-catl-2025',dataset_version=1,revenue_fact_id='f-2025-power_battery-revenue',cost_fact_id='f-2025-power_battery-cost_of_sales',revenue_revision=1,cost_revision=1,model_version='static-gross-profit-v1',assumptions=dict(cost_exposure='0.1',effective_price_shock='-0.2',customer_pass_through='0.5',basis='user_assumption',acknowledged=True))
   self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-1'}),501,'NOT_IMPLEMENTED')

@@ -18,6 +18,7 @@ class FactCorrection(Contract):
     @model_validator(mode='after')
     def values(self):
         if self.status=='missing' and (self.value is not None or not self.missing_reason):raise ValueError('missing needs null/reason')
+        if self.status=='missing' and self.raw_value is not None:raise ValueError('missing raw value must be null')
         if self.status!='missing' and self.value is None:raise ValueError('value required')
         if self.status=='verified' and not self.evidence_ids:raise ValueError('evidence required')
         return self
