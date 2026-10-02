@@ -19,6 +19,8 @@ function App(){
   const [statusF,setStatusF]=useState('all');
   const [reviewing,setReviewing]=useState<Fact|null>(null);
   const [evidence,setEvidence]=useState<Evidence|null>(null);
+  const [evidenceLoading,setEvidenceLoading]=useState(false);
+  const [evidenceError,setEvidenceError]=useState('');
   const [error,setError]=useState('');
   const [loading,setLoading]=useState(false);
 
@@ -45,25 +47,34 @@ function App(){
 
   useEffect(()=>{
     setEvidence(null);
-    if(!reviewing||!reviewing.evidence_ids.length)return;
+    setEvidenceError('');
+    if(!reviewing||!reviewing.evidence_ids.length){setEvidenceLoading(false);return;}
     const c=new AbortController();
-    api.evidence(reviewing.evidence_ids[0],c.signal).then(setEvidence).catch(()=>setEvidence(null));
+    setEvidenceLoading(true);
+    api.evidence(reviewing.evidence_ids[0],c.signal)
+      .then(setEvidence)
+      .catch(e=>{if(!c.signal.aborted)setEvidenceError(message(e));})
+      .finally(()=>{if(!c.signal.aborted)setEvidenceLoading(false);});
     return()=>c.abort();
   },[reviewing]);
 
   const onUploaded=(a:SourceAttachment)=>{setDatasets(prev=>prev.map(d=>d.id===a.dataset.id?a.dataset:d));};
-  const onSaved=(f:Fact)=>{setFacts(prev=>prev.map(x=>x.id===f.id?f:x));setReviewing(null);};
-  const onReload=()=>{
-    if(!d)return;
-    api.facts(d.id,d.version).then(v=>{
-      setFacts(v.items);
-      const fresh=v.items.find(f=>f.id===reviewing?.id);
-      if(fresh)setReviewing(fresh);
-    }).catch(e=>setError(message(e)));
+  const refreshLatest=async(factId:string|null)=>{
+    if(!selected)return;
+    setLoading(true);setError('');
+    try{
+      const latest=await api.dataset(selected);
+      const collection=await api.facts(latest.id,latest.version);
+      setDatasets(prev=>prev.map(d=>d.id===latest.id?latest:d));
+      setFacts(collection.items);
+      setReviewing(factId?collection.items.find(f=>f.id===factId)??null:null);
+    }catch(e){setError(message(e));}
+    finally{setLoading(false);}
   };
+  const onSaved=async(_fact:Fact)=>refreshLatest(null);
+  const onReload=async()=>refreshLatest(reviewing?.id??null);
 
   const visible=facts.filter(f=>(segment==='all'||f.segment===segment)&&(statusF==='all'||f.status===statusF));
-  const d=datasets.find(x=>x.id===selected);
 
   return <main>
     <header><div><p>链眼 · 契约 v{CONTRACT_VERSION}</p><h1>宁德时代研究工作台</h1></div><span>R2 上传与复核</span></header>
@@ -79,7 +90,7 @@ function App(){
     <section className="panel">
       <h2>财务事实复核</h2>
       {reviewing
-        ?<ReviewForm fact={reviewing} evidence={evidence} onClose={()=>setReviewing(null)} onSaved={onSaved} onReload={onReload}/>
+        ?<ReviewForm key={`${reviewing.id}:${reviewing.revision??1}`} fact={reviewing} evidence={evidence} evidenceLoading={evidenceLoading} evidenceError={evidenceError} onClose={()=>setReviewing(null)} onSaved={onSaved} onReload={onReload}/>
         :<FactTable facts={visible} onSelect={setReviewing} onEvidence={setReviewing}/>}
     </section>
   </main>;

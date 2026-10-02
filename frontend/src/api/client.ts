@@ -1,5 +1,4 @@
 import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate} from './generated';
-import {MOCK_ENABLED, mockUploadSource, mockCorrectFact} from './mock';
 
 export const BASE_URL='http://127.0.0.1:8000';
 
@@ -29,6 +28,7 @@ function json(method:'POST'|'PATCH',body:unknown):RequestInit{
 
 export const api={
   datasets:(signal?:AbortSignal)=>request<DatasetCollection>('/api/v1/datasets',{signal}),
+  dataset:(id:string,signal?:AbortSignal)=>request<Dataset>(`/api/v1/datasets/${encodeURIComponent(id)}`,{signal}),
   createDataset:(body:DatasetCreate)=>request<Dataset>('/api/v1/datasets',json('POST',body)),
   facts:(id:string,version:number,opts?:{status?:string;segment?:string;signal?:AbortSignal})=>{
     const p=new URLSearchParams({version:String(version)});
@@ -37,17 +37,13 @@ export const api={
     return request<FactCollection>(`/api/v1/datasets/${encodeURIComponent(id)}/facts?${p.toString()}`,{signal:opts?.signal});
   },
   uploadSource:(id:string,file:File,opts?:{url?:string;published_date?:string})=>{
-    if(MOCK_ENABLED)return mockUploadSource(id,file);
     const fd=new FormData();
     fd.append('file',file);
     if(opts?.url)fd.append('url',opts.url);
     if(opts?.published_date)fd.append('published_date',opts.published_date);
     return request<SourceAttachment>(`/api/v1/datasets/${encodeURIComponent(id)}/sources`,{method:'POST',body:fd});
   },
-  correctFact:(id:string,body:FactCorrection)=>{
-    if(MOCK_ENABLED)return mockCorrectFact(id,body);
-    return request<Fact>(`/api/v1/facts/${encodeURIComponent(id)}`,json('PATCH',body));
-  },
+  correctFact:(id:string,body:FactCorrection)=>request<Fact>(`/api/v1/facts/${encodeURIComponent(id)}`,json('PATCH',body)),
   evidence:(id:string,signal?:AbortSignal)=>request<Evidence>(`/api/v1/evidence/${encodeURIComponent(id)}`,{signal}),
   source:(id:string,signal?:AbortSignal)=>request<Source>(`/api/v1/sources/${encodeURIComponent(id)}`,{signal}),
 };

@@ -5,7 +5,6 @@ import {parseStatusLabels} from '../lib/format';
 
 function message(e:unknown):string{
   if(e instanceof ApiError){
-    if(e.code==='NOT_IMPLEMENTED')return '该接口尚待实现（后端 R2 尚未合并到 main）';
     return `${e.message}（${e.code}，${e.requestId}）`;
   }
   return e instanceof Error?e.message:'上传失败';
