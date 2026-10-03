@@ -1,4 +1,4 @@
-import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation, RunCreate, Run, EventCollection, ResumeRequest} from './generated';
+import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation, RunCreate, Run, EventCollection, ResumeRequest, Report} from './generated';
 
 export const BASE_URL='http://127.0.0.1:8000';
 
@@ -56,6 +56,7 @@ export const api={
     return request<EventCollection>(`/api/v1/runs/${encodeURIComponent(id)}/events${q?`?${q}`:''}`,{signal:opts?.signal});
   },
   resumeRun:(id:string,body:ResumeRequest)=>request<Run>(`/api/v1/runs/${encodeURIComponent(id)}/resume`,json('POST',body)),
+  report:(id:string,signal?:AbortSignal)=>request<Report>(`/api/v1/runs/${encodeURIComponent(id)}/report?format=json`,{signal}),
   evidence:(id:string,signal?:AbortSignal)=>request<Evidence>(`/api/v1/evidence/${encodeURIComponent(id)}`,{signal}),
   source:(id:string,signal?:AbortSignal)=>request<Source>(`/api/v1/sources/${encodeURIComponent(id)}`,{signal}),
 };

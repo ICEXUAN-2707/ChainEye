@@ -1,10 +1,11 @@
 import {useState} from 'react';
-import type {Dataset,Run,Event,RunCreate} from '../api/generated';
-import {api,ApiError} from '../api/client';
+import type {Dataset,Run,Event,RunCreate,Report,Claim} from '../api/generated';
+import {api,ApiError,BASE_URL} from '../api/client';
 import {stableKey} from '../lib/scenario';
 
 const runStatusLabels:Record<string,string>={queued:'排队中',running:'运行中',waiting_review:'待复核',completed:'已完成',partial:'部分完成',failed:'失败',cancelled:'已取消'};
 const eventTypeLabels:Record<string,string>={file_access:'文件访问',tool_call:'工具调用',calculation:'计算',llm_call:'模型调用',node_status:'节点状态',report_generated:'报告生成',error:'错误'};
+const claimKindLabels:Record<string,string>={fact:'事实',calculation:'计算',inference:'推论',opinion:'观点',hypothesis:'假设'};
 const runStatusClass=(s:string)=>s==='completed'?'s-verified':s==='failed'||s==='cancelled'?'s-missing':s==='waiting_review'?'s-needs-review':'s-extracted';
 
 function message(e:unknown):string{
@@ -22,6 +23,7 @@ export function RunPanel({dataset}:{dataset:Dataset}){
   const [replayId,setReplayId]=useState('');
   const [run,setRun]=useState<Run|null>(null);
   const [events,setEvents]=useState<Event[]>([]);
+  const [report,setReport]=useState<Report|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
 
@@ -33,7 +35,7 @@ export function RunPanel({dataset}:{dataset:Dataset}){
     setBusy(true);setError('');
     try{
       const r=await api.createRun(body,stableKey(runKey));
-      setRun(r);setEvents([]);
+      setRun(r);setEvents([]);setReport(null);
     }catch(e){setError(message(e));}
     finally{setBusy(false);}
   };
@@ -43,6 +45,7 @@ export function RunPanel({dataset}:{dataset:Dataset}){
     try{
       const [r,ev]=await Promise.all([api.run(run.id),api.runEvents(run.id)]);
       setRun(r);setEvents(ev.items);
+      if(r.report_ready){try{setReport(await api.report(run.id));}catch{}}
     }catch(e){setError(message(e));}
     finally{setBusy(false);}
   };
@@ -77,6 +80,14 @@ export function RunPanel({dataset}:{dataset:Dataset}){
         {run.status==='waiting_review'&&<button onClick={resume} disabled={busy}>继续运行</button>}
       </div>
       {events.length>0&&<div className="events"><h3>事件时间线</h3><ol className="trace">{events.map(e=><li key={e.seq}><strong>{eventTypeLabels[e.type]??e.type}</strong>（{e.node}）<span className="muted">{e.at}</span></li>)}</ol></div>}
+      {report&&<div className="report"><h3>报告 · {report.title}</h3>
+        <div className="review-actions">
+          <a className="button-link" target="_blank" rel="noreferrer" href={`${BASE_URL}/api/v1/runs/${encodeURIComponent(run.id)}/report?format=markdown`}>导出 Markdown</a>
+          <a className="button-link" target="_blank" rel="noreferrer" href={`${BASE_URL}/api/v1/runs/${encodeURIComponent(run.id)}/report?format=pdf`}>导出 PDF</a>
+        </div>
+        {report.claims.length>0&&<div className="table"><table><thead><tr><th>类型</th><th>结论</th><th>状态</th></tr></thead><tbody>{report.claims.map((c:Claim)=><tr key={c.id}><td><span className="badge s-extracted">{claimKindLabels[c.kind]??c.kind}</span></td><td>{c.text}</td><td>{c.review_status}</td></tr>)}</tbody></table></div>}
+        {report.limitations.length>0&&<p className="muted">限制：{report.limitations.join('；')}</p>}
+      </div>}
     </div>}
   </section>;
 }
