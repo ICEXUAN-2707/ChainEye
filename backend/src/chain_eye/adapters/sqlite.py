@@ -4,8 +4,12 @@ from pathlib import Path
 from datetime import datetime,timezone
 from uuid import uuid4
 from chain_eye.domain.datasets import Dataset,DatasetCreate,Source,SourceAttachment,DatasetSourceLimitError
-from chain_eye.domain.contracts import Fact,Evidence
+from chain_eye.domain.contracts import Fact,Evidence,ScenarioResult
 from chain_eye.domain.review import EvidenceScopeError,FactNotFoundError,FactRevisionConflictError,FactScopeError
+from chain_eye.domain.scenario import (
+    IdempotencyConflictError,ScenarioEvidenceNotFoundError,
+    ScenarioEvidenceScopeError,ScenarioFactNotFoundError,ScenarioFactScopeError,
+)
 
 class SQLiteRepository:
     def __init__(self,path,project_root,upload_root=None):
@@ -71,6 +75,48 @@ class SQLiteRepository:
         with self.connect() as db:
             rows=db.execute('SELECT f.body FROM dataset_facts df JOIN facts f ON f.id=df.fact_id AND f.revision=df.revision WHERE df.dataset_id=? AND df.version=? ORDER BY f.id',(id,version)).fetchall()
         return [Fact.model_validate_json(row[0]) for row in rows]
+    def get_fact_for_snapshot(self,dataset_id,version,fact_id,revision):
+        with self.connect() as db:
+            exists=db.execute('SELECT 1 FROM facts WHERE id=?',(fact_id,)).fetchone()
+            if exists is None:raise ScenarioFactNotFoundError('fact does not exist')
+            row=db.execute('SELECT f.body FROM dataset_facts df JOIN facts f ON f.id=df.fact_id AND f.revision=df.revision WHERE df.dataset_id=? AND df.version=? AND df.fact_id=? AND df.revision=?',(dataset_id,version,fact_id,revision)).fetchone()
+        if row is None:raise ScenarioFactScopeError('fact revision is outside the requested dataset snapshot')
+        return Fact.model_validate_json(row[0])
+    def validate_evidence_snapshot(self,dataset_id,version,evidence_ids):
+        with self.connect() as db:
+            for evidence_id in evidence_ids:
+                row=db.execute('SELECT source_id FROM evidence WHERE id=?',(evidence_id,)).fetchone()
+                if row is None:raise ScenarioEvidenceNotFoundError('assumption evidence does not exist')
+                linked=db.execute('SELECT 1 FROM dataset_sources WHERE dataset_id=? AND version=? AND source_id=?',(dataset_id,version,row[0])).fetchone()
+                if linked is None:raise ScenarioEvidenceScopeError('assumption evidence is outside the requested dataset snapshot')
+    def save_calculations(self,calculations):
+        with self.connect() as db:
+            for calculation in calculations:
+                db.execute('INSERT INTO calculations VALUES (?,?)',(calculation.id,calculation.model_dump_json()))
+    def get_idempotent_scenario(self,scope,key,body_hash):
+        with self.connect() as db:
+            row=db.execute('SELECT body_hash,response_body,expires_at FROM idempotency WHERE scope=? AND key=?',(scope,key)).fetchone()
+        if row and datetime.fromisoformat(row[2])>datetime.now(timezone.utc):
+            if row[0]!=body_hash:raise IdempotencyConflictError('idempotency key reused')
+            return ScenarioResult.model_validate_json(row[1])
+        return None
+    def save_scenario_idempotently(self,scope,key,body_hash,result,calculations,expires_at):
+        now=datetime.now(timezone.utc)
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT body_hash,response_body,expires_at FROM idempotency WHERE scope=? AND key=?',(scope,key)).fetchone()
+            if row:
+                expiry=datetime.fromisoformat(row[2])
+                if expiry>now:
+                    if row[0]!=body_hash:raise IdempotencyConflictError('idempotency key reused')
+                    return ScenarioResult.model_validate_json(row[1])
+                db.execute('DELETE FROM idempotency WHERE scope=? AND key=?',(scope,key))
+            for calculation in calculations:
+                db.execute('INSERT INTO calculations VALUES (?,?)',(calculation.id,calculation.model_dump_json()))
+            response=result.model_dump_json()
+            db.execute('INSERT INTO scenarios VALUES (?,?)',(result.scenario_id,response))
+            db.execute('INSERT INTO idempotency VALUES (?,?,?,?,?)',(scope,key,body_hash,response,expires_at.isoformat()))
+        return result
     @staticmethod
     def _fact_key(fact):
         return (fact.company,fact.metric,fact.segment,fact.period_end,fact.statement_scope)

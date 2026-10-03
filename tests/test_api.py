@@ -4,7 +4,7 @@ import fitz
 from fastapi.testclient import TestClient
 from chain_eye.api.app import create_app
 from chain_eye.api.dto import FactCollection,Dataset,ErrorResponse
-from chain_eye.domain.contracts import Evidence
+from chain_eye.domain.contracts import Calculation,Evidence,ScenarioResult
 ROOT=Path(__file__).resolve().parents[1]
 def pdf_bytes(text='uploaded text',pages=1,encryption=False):
  doc=fitz.open()
@@ -19,7 +19,7 @@ class API(unittest.TestCase):
  def tearDown(self):self.client.close();self.tmp.cleanup()
  def check_error(self,response,status,code):
   self.assertEqual(response.status_code,status);e=ErrorResponse.model_validate(response.json());self.assertEqual(e.error.code,code);self.assertTrue(e.error.request_id)
- def test_health(self):self.assertEqual(self.client.get('/health').json()['stage'],'R2')
+ def test_health(self):self.assertEqual(self.client.get('/health').json()['stage'],'R3')
  def test_facts(self):
   r=self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1');self.assertEqual(r.status_code,200);data=FactCollection.model_validate(r.json());self.assertEqual(len(data.items),30)
  def test_filter(self):self.assertEqual(len(self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1&segment=power_battery').json()['items']),6)
@@ -126,9 +126,84 @@ class API(unittest.TestCase):
   body={'expected_revision':1,'value':None,'status':'missing','evidence_ids':[],'reason':'not disclosed after review','missing_reason':'not disclosed'}
   response=self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=body)
   self.assertEqual(response.status_code,200);self.assertIsNone(response.json()['value']);self.assertIsNone(response.json()['raw_value']);self.assertEqual(response.json()['revision'],2)
- def test_scenario_stub(self):
-  body=dict(dataset_id='demo-catl-2025',dataset_version=1,revenue_fact_id='f-2025-power_battery-revenue',cost_fact_id='f-2025-power_battery-cost_of_sales',revenue_revision=1,cost_revision=1,model_version='static-gross-profit-v1',assumptions=dict(cost_exposure='0.1',effective_price_shock='-0.2',customer_pass_through='0.5',basis='user_assumption',acknowledged=True))
-  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-1'}),501,'NOT_IMPLEMENTED')
+ def scenario_body(self,segment='power_battery'):
+  return dict(dataset_id='demo-catl-2025',dataset_version=1,revenue_fact_id=f'f-2025-{segment}-revenue',cost_fact_id=f'f-2025-{segment}-cost_of_sales',revenue_revision=1,cost_revision=1,model_version='static-gross-profit-v1',assumptions=dict(cost_exposure='0.1',effective_price_shock='-0.2',customer_pass_through='0.5',basis='user_assumption',acknowledged=True))
+ def test_scenario_persists_traceable_calculations_for_both_segments(self):
+  for index,segment in enumerate(('power_battery','energy_storage')):
+   response=self.client.post('/api/v1/scenarios',json=self.scenario_body(segment),headers={'Idempotency-Key':f'scenario-{index}'})
+   self.assertEqual(response.status_code,201);result=ScenarioResult.model_validate(response.json())
+   self.assertEqual(len(result.calculation_ids),9);self.assertEqual(result.mode,'conditional_scenario')
+   calculations={}
+   for calculation_id in result.calculation_ids:
+    calculation=Calculation.model_validate(self.client.get(f'/api/v1/calculations/{calculation_id}').json())
+    self.assertTrue(calculation.input_fact_ids);self.assertEqual(set(calculation.input_fact_ids),set(calculation.input_revisions))
+    calculations[calculation.formula_id]=calculation
+   self.assertEqual(set(calculations),{'baseline-gross-profit','baseline-gross-margin','scenario-delta-cost','scenario-revenue','scenario-cost-of-sales','scenario-gross-profit','scenario-gross-margin','scenario-delta-gross-profit','scenario-delta-gross-margin-pp'})
+   expected={
+    'baseline-gross-profit':(result.baseline.gross_profit,'CNY'),'baseline-gross-margin':(result.baseline.gross_margin,'ratio'),
+    'scenario-delta-cost':(result.outputs.delta_cost,'CNY'),'scenario-revenue':(result.outputs.revenue,'CNY'),
+    'scenario-cost-of-sales':(result.outputs.cost_of_sales,'CNY'),'scenario-gross-profit':(result.outputs.gross_profit,'CNY'),
+    'scenario-gross-margin':(result.outputs.gross_margin,'ratio'),'scenario-delta-gross-profit':(result.outputs.delta_gross_profit,'CNY'),
+    'scenario-delta-gross-margin-pp':(result.outputs.delta_gross_margin_pp,'pp'),
+   }
+   for formula_id,(value,unit) in expected.items():
+    self.assertEqual((calculations[formula_id].value,calculations[formula_id].unit),(value,unit))
+    self.assertEqual(calculations[formula_id].formula_version,'1')
+   self.assertEqual(calculations['baseline-gross-profit'].assumption_snapshot,{})
+   self.assertEqual(calculations['scenario-gross-profit'].assumption_snapshot,{'cost_exposure':'0.1','effective_price_shock':'-0.2','customer_pass_through':'0.5','basis':'user_assumption','acknowledged':'true','evidence_ids':'[]'})
+ def test_scenario_idempotency_reuses_and_conflicts(self):
+  body=self.scenario_body();headers={'Idempotency-Key':'scenario-same'}
+  first=self.client.post('/api/v1/scenarios',json=body,headers=headers);second=self.client.post('/api/v1/scenarios',json=body,headers=headers)
+  self.assertEqual(first.status_code,201);self.assertEqual(second.status_code,201);self.assertEqual(first.json(),second.json())
+  body['assumptions']['cost_exposure']='0.2';body['revenue_fact_id']='missing';conflict=self.client.post('/api/v1/scenarios',json=body,headers=headers)
+  self.check_error(conflict,409,'INVALID_INPUT');self.assertEqual(conflict.json()['error']['details']['reason'],'IDEMPOTENCY_KEY_REUSED')
+  with self.app.state.repository.connect() as db:
+   self.assertEqual(db.execute('SELECT COUNT(*) FROM scenarios').fetchone()[0],1);self.assertEqual(db.execute('SELECT COUNT(*) FROM calculations').fetchone()[0],9)
+ def test_scenario_rejects_unknown_and_wrong_snapshot_fact(self):
+  body=self.scenario_body();body['revenue_fact_id']='missing'
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-missing'}),404,'NOT_FOUND')
+  body=self.scenario_body();body['revenue_revision']=2
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-revision'}),409,'SCOPE_MISMATCH')
+ def test_scenario_rejects_mixed_scope(self):
+  body=self.scenario_body();body['cost_fact_id']='f-2025-energy_storage-cost_of_sales'
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-scope'}),409,'SCOPE_MISMATCH')
+  with self.app.state.repository.connect() as db:
+   self.assertEqual(db.execute('SELECT COUNT(*) FROM scenarios').fetchone()[0],0);self.assertEqual(db.execute('SELECT COUNT(*) FROM calculations').fetchone()[0],0)
+ def test_scenario_assumption_evidence_must_belong_to_snapshot(self):
+  body=self.scenario_body();body['assumptions']['basis']='research_assumption';body['assumptions']['evidence_ids']=['e-2025-power_battery-revenue']
+  response=self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-evidence-valid'});self.assertEqual(response.status_code,201)
+  calculation=self.client.get(f"/api/v1/calculations/{response.json()['calculation_ids'][2]}").json()
+  self.assertEqual(calculation['assumption_snapshot']['evidence_ids'],'["e-2025-power_battery-revenue"]')
+  body=self.scenario_body();body['assumptions']['evidence_ids']=['unknown-evidence']
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-evidence-missing'}),404,'NOT_FOUND')
+  other=self.create_dataset('other evidence owner');attachment=self.upload(other['id'],pdf_bytes('scenario evidence')).json();source=attachment['source']
+  evidence=Evidence(id='scenario-cross-dataset-evidence',source_id=source['id'],locator_kind='pdf',pdf_page=1,excerpt='scenario evidence',sha256=source['sha256'])
+  with self.app.state.repository.connect() as db:db.execute('INSERT INTO evidence VALUES (?,?,?)',(evidence.id,evidence.source_id,evidence.model_dump_json()))
+  body=self.scenario_body();body['assumptions']['evidence_ids']=[evidence.id]
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-evidence-scope'}),409,'SCOPE_MISMATCH')
+  with self.app.state.repository.connect() as db:
+   self.assertEqual(db.execute('SELECT COUNT(*) FROM scenarios').fetchone()[0],1);self.assertEqual(db.execute('SELECT COUNT(*) FROM calculations').fetchone()[0],9)
+ def test_scenario_rejects_cross_period_and_group_baselines_without_writes(self):
+  body=self.scenario_body();body['cost_fact_id']='f-2024-power_battery-cost_of_sales'
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-period'}),409,'SCOPE_MISMATCH')
+  body=self.scenario_body();body.update(revenue_fact_id='f-2025-group-revenue',cost_fact_id='f-2025-group-cost_of_sales')
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-group'}),409,'INVALID_BASELINE')
+  with self.app.state.repository.connect() as db:
+   self.assertEqual(db.execute('SELECT COUNT(*) FROM scenarios').fetchone()[0],0);self.assertEqual(db.execute('SELECT COUNT(*) FROM calculations').fetchone()[0],0)
+ def test_scenario_snapshot_is_immutable_after_fact_correction(self):
+  body=self.scenario_body();first=self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-before'});self.assertEqual(first.status_code,201)
+  old=first.json();old_calculation=self.client.get(f"/api/v1/calculations/{old['calculation_ids'][0]}").json()
+  correction={'expected_revision':1,'value':'316506370000','status':'verified','evidence_ids':['e-2025-power_battery-revenue'],'reason':'scenario snapshot test'}
+  self.assertEqual(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=correction).status_code,200)
+  self.assertEqual(self.client.get(f"/api/v1/calculations/{old['calculation_ids'][0]}").json(),old_calculation)
+  body.update(dataset_version=2,revenue_revision=2)
+  second=self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-after'});self.assertEqual(second.status_code,201)
+  self.assertNotEqual(second.json()['scenario_id'],old['scenario_id']);self.assertEqual(second.json()['input_revisions']['f-2025-power_battery-revenue'],2)
+ def test_scenario_requires_verified_baseline(self):
+  correction={'expected_revision':1,'value':'316506369000','status':'needs_review','evidence_ids':['e-2025-power_battery-revenue'],'reason':'requires another review'}
+  self.assertEqual(self.client.patch('/api/v1/facts/f-2025-power_battery-revenue',json=correction).status_code,200)
+  body=self.scenario_body();body.update(dataset_version=2,revenue_revision=2)
+  self.check_error(self.client.post('/api/v1/scenarios',json=body,headers={'Idempotency-Key':'scenario-unverified'}),409,'FACT_NOT_VERIFIED')
  def test_idempotency_required(self):
   body={'dataset_id':'demo-catl-2025','dataset_version':1,'question':'q','segment':'power_battery','mode':'live'}
   self.check_error(self.client.post('/api/v1/runs',json=body),422,'INVALID_INPUT')
