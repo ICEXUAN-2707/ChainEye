@@ -1,4 +1,4 @@
-import {useEffect,useMemo,useState} from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
 import type {Dataset,Fact,ScenarioRequest,ScenarioResult,Calculation} from '../api/generated';
 import {api,ApiError} from '../api/client';
 import {names,fmtAmount,fmtPp} from '../lib/format';
@@ -48,9 +48,11 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
   // 切业务时回退到最新年度
   useEffect(()=>{setYear('');},[segment]);
 
-  // 基线/参数/版本/basis 变化时清除旧结果，避免旧结果挂在新的输入下（spec：旧结果过期）
+  const genRef=useRef(0);
+  // 基线/参数/版本/basis 变化时清除旧结果并失效在途请求，避免旧结果或旧异步响应挂在新的输入下（spec：旧结果过期）
   useEffect(()=>{
-    setResult(null);setGrid(null);setCalcs({});
+    genRef.current++;
+    setResult(null);setGrid(null);setCalcs({});setBusy(false);
   },[dataset.id,dataset.version,segment,revenue?.id,cost?.id,revenue?.revision,cost?.revision,s,x,k,basis]);
 
   const keyInput=(sv:string,xv:string,kv:string)=>({dataset_id:dataset.id,dataset_version:dataset.version,revenue_fact_id:revenue?.id??'',revenue_revision:revenue?.revision??1,cost_fact_id:cost?.id??'',cost_revision:cost?.revision??1,cost_exposure:sv,effective_price_shock:xv,customer_pass_through:kv,basis});
@@ -63,13 +65,17 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
   const run=async()=>{
     const body=buildRequest(s.trim(),x.trim(),k.trim());
     if(!body)return;
+    const gen=genRef.current;
     setBusy(true);setError('');
-    try{setResult(await api.createScenario(body,scenarioKey(keyInput(s.trim(),x.trim(),k.trim()))));}
-    catch(e){setError(message(e));}
+    try{
+      const r=await api.createScenario(body,scenarioKey(keyInput(s.trim(),x.trim(),k.trim())));
+      if(gen===genRef.current)setResult(r);
+    }catch(e){if(gen===genRef.current)setError(message(e));}
     finally{setBusy(false);}
   };
   const runGrid=async()=>{
     if(!canRun)return;
+    const gen=genRef.current;
     setBusy(true);setError('');setGrid(null);
     try{
       const rows=[];
@@ -77,8 +83,8 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
         const body=buildRequest(sv,xv,kv)!;
         rows.push({s:sv,x:xv,k:kv,r:await api.createScenario(body,scenarioKey(keyInput(sv,xv,kv)))});
       }
-      setGrid(rows);
-    }catch(e){setError(message(e));}
+      if(gen===genRef.current)setGrid(rows);
+    }catch(e){if(gen===genRef.current)setError(message(e));}
     finally{setBusy(false);}
   };
   const openCalc=async(id:string)=>{
