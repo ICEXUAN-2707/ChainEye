@@ -15,6 +15,7 @@ from chain_eye.application.errors import AppError
 from chain_eye.application.source_upload import MAX_PDF_BYTES,SourceUploadService,sha256_file
 from chain_eye.application.extraction import ExtractionService
 from chain_eye.application.fact_review import FactReviewService
+from chain_eye.application.scenarios import ScenarioExecutionService
 
 ROOT=Path(__file__).resolve().parents[4]
 RESPONSES={n:{'model':ErrorResponse,'description':t} for n,t in [(403,'local access only'),(404,'not found'),(409,'conflict'),(422,'invalid input'),(429,'budget exceeded'),(500,'internal failure'),(501,'not implemented in current slice'),(503,'provider unavailable')]}
@@ -23,8 +24,8 @@ def create_app(db_path=None,seed=True,upload_dir=None):
     if os.getenv('CHAIN_EYE_MODE','local')!='local': raise RuntimeError('R1 supports local mode only; public authentication not implemented')
     repo=SQLiteRepository(db_path or os.getenv('CHAIN_EYE_DB',str(ROOT/'.runtime/chain_eye.sqlite')),ROOT,upload_dir)
     if seed:repo.seed()
-    uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo)
-    app=FastAPI(title='Chain Eye API',version='0.2.0',description='R2 data and review workflow: validated PDF upload, deterministic candidate extraction, evidence, and immutable fact correction. Scenario, Agent, and report workflows are not implemented.')
+    uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo)
+    app=FastAPI(title='Chain Eye API',version='0.2.0',description='R3 data, review, deterministic financial calculation, and conditional scenario workflow. Agent and report workflows are not implemented.')
     app.state.repository=repo
     app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_methods=['GET','POST','PATCH'],allow_headers=['Content-Type','Idempotency-Key'],allow_credentials=False)
     def error(code,message,status,request_id,details=None,retryable=False):
@@ -57,7 +58,7 @@ def create_app(db_path=None,seed=True,upload_dir=None):
         return v
     def pending(round):raise AppError('NOT_IMPLEMENTED',f'该能力计划在{round}实现，当前交付块未执行该操作',501)
     @app.get('/health',operation_id='health')
-    def health():return {'status':'ok','stage':'R2','mode':'local','schema_version':'0.2.0','data_basis':'reviewed_fixture_and_user_upload'}
+    def health():return {'status':'ok','stage':'R3','mode':'local','schema_version':'0.2.0','data_basis':'reviewed_fixture_and_user_upload'}
     @app.post('/api/v1/datasets',response_model=Dataset,status_code=201,responses=RESPONSES,operation_id='createDataset')
     def create_dataset(body:DatasetCreate):return repo.create(body)
     @app.get('/api/v1/datasets',response_model=DatasetCollection,responses=RESPONSES,operation_id='listDatasets')
@@ -100,7 +101,7 @@ def create_app(db_path=None,seed=True,upload_dir=None):
     def resume(id:str,body:ResumeRequest):required('runs',id);pending('R4')
     @app.post('/api/v1/scenarios',response_model=ScenarioResult,status_code=201,responses=RESPONSES,operation_id='createScenario')
     def scenario(body:ScenarioRequest,idempotency_key:Annotated[str,Header(min_length=8,max_length=128,alias='Idempotency-Key')]):
-        required_dataset(body.dataset_id,body.dataset_version);pending('R3')
+        return scenarios.execute(body,idempotency_key)
     @app.get('/api/v1/evidence/{id}',response_model=Evidence,responses=RESPONSES,operation_id='getEvidence')
     def evidence(id:str):return required('evidence',id)
     @app.get('/api/v1/calculations/{id}',response_model=Calculation,responses=RESPONSES,operation_id='getCalculation')
