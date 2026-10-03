@@ -13,10 +13,10 @@ function fmtValue(f:Fact):string{
 
 export function DiagnosticPanel({facts}:{facts:Fact[]}){
   const [segment,setSegment]=useState<'group'|'power_battery'|'energy_storage'>('group');
-  const verified=facts.filter(f=>f.segment===segment&&f.status==='verified');
+  const reviewed=facts.filter(f=>f.segment===segment&&(f.status==='verified'||f.status==='missing'));
   const byYear=(metric:string):Record<string,Fact>=>{
     const out:Record<string,Fact>={};
-    for(const f of verified)if(f.metric===metric)out[(f.period_end??'').slice(0,4)]=f;
+    for(const f of reviewed)if(f.metric===metric)out[(f.period_end??'').slice(0,4)]=f;
     return out;
   };
   const renderGroup=(title:string,list:string[])=>(
@@ -29,7 +29,7 @@ export function DiagnosticPanel({facts}:{facts:Fact[]}){
           <td>{metrics[m]}</td>
           <td>{f2024?fmtValue(f2024):'—'}</td>
           <td>{f2025?fmtValue(f2025):'—'}</td>
-          <td className="muted">{f2025?.period_kind==='point_in_time'?'期末余额':'全年流量'}{m==='reported_gross_margin'?'·披露值':''}</td>
+          <td className="muted">{((f2025??f2024)?.period_kind)==='point_in_time'?'期末余额':'全年流量'}{m==='reported_gross_margin'?'·披露值':''}</td>
         </tr>;
       })}</tbody>
     </table></div>
@@ -44,7 +44,7 @@ export function DiagnosticPanel({facts}:{facts:Fact[]}){
         <option value="energy_storage">储能电池</option>
       </select></label>
     </section>
-    {!verified.length?<p>该业务暂无已复核事实，请先在「数据复核」页完成人工复核。</p>:<>
+    {!reviewed.length?<p>该业务暂无已复核事实，请先在「数据复核」页完成人工复核。</p>:<>
       {renderGroup('经营指标',FLOW)}
       {renderGroup('资产负债指标',STOCK)}
     </>}

@@ -1,4 +1,4 @@
-import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult} from './generated';
+import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation} from './generated';
 
 export const BASE_URL='http://127.0.0.1:8000';
 
@@ -45,6 +45,7 @@ export const api={
   },
   correctFact:(id:string,body:FactCorrection)=>request<Fact>(`/api/v1/facts/${encodeURIComponent(id)}`,json('PATCH',body)),
   createScenario:(body:ScenarioRequest,idempotencyKey:string)=>request<ScenarioResult>('/api/v1/scenarios',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(body)}),
+  calculation:(id:string,signal?:AbortSignal)=>request<Calculation>(`/api/v1/calculations/${encodeURIComponent(id)}`,{signal}),
   evidence:(id:string,signal?:AbortSignal)=>request<Evidence>(`/api/v1/evidence/${encodeURIComponent(id)}`,{signal}),
   source:(id:string,signal?:AbortSignal)=>request<Source>(`/api/v1/sources/${encodeURIComponent(id)}`,{signal}),
 };
