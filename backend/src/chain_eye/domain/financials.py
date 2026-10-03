@@ -38,6 +38,10 @@ def _series(facts,metric_id,group_only=False):
     if len(selected)<2:return None,selected,'current and prior annual facts are required'
     pair=selected[-2:]
     if _year(pair[1])!=_year(pair[0])+1:return None,pair,'consecutive annual facts are required'
+    if pair[0].period_kind=='point_in_time':
+        prior_date=date.fromisoformat(pair[0].period_end);current_date=date.fromisoformat(pair[1].period_end)
+        if (prior_date.month,prior_date.day)!=(current_date.month,current_date.day):
+            return None,pair,'comparable point-in-time dates are required'
     if any(f.status!='verified' or f.value is None for f in pair):return None,pair,'required facts are missing or not verified'
     return pair,pair,None
 
