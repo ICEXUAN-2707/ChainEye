@@ -1,10 +1,12 @@
 from typing import Protocol
-from chain_eye.domain.contracts import ScenarioRequest, ScenarioResult
+from chain_eye.domain.contracts import Calculation, Fact, ScenarioRequest, ScenarioResult
 from chain_eye.domain.extraction import DocumentPages
 from chain_eye.api.dto import RunCreate,Run
 class Parser(Protocol):
     def parse(self,source_id:str,content:bytes)->DocumentPages:...
 class ScenarioService(Protocol):
     def execute(self,request:ScenarioRequest,idempotency_key:str)->ScenarioResult:...
+class FinancialService(Protocol):
+    def compute(self,fact_snapshot:list[Fact],requested_metric_ids:list[str])->list[Calculation]:...
 class RunService(Protocol):
     def create(self,request:RunCreate,idempotency_key:str)->Run:...
