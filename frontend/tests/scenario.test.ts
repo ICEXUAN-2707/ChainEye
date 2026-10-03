@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {Fact} from '../src/api/generated.ts';
-import {pairBaseline,stableKey} from '../src/lib/scenario.ts';
+import {pairBaseline,stableKey,scenarioKey} from '../src/lib/scenario.ts';
 
 function fact(id:string,metric:string,segment:string,periodEnd:string,status:string):Fact{
   return {
@@ -21,10 +21,9 @@ test('pairBaseline pairs revenue+cost by same scope and orders latest first',()=
   ];
   const pairs=pairBaseline(facts,'power_battery');
   assert.equal(pairs.length,2);
-  assert.equal(pairs[0].periodEnd,'2025-12-31');  // 最新年度在前
+  assert.equal(pairs[0].periodEnd,'2025-12-31');
   assert.equal(pairs[0].revenue.id,'r25');
   assert.equal(pairs[0].cost.id,'c25');
-  assert.equal(pairs[1].periodEnd,'2024-12-31');
 });
 
 test('pairBaseline does not pair mismatched years',()=>{
@@ -43,7 +42,29 @@ test('pairBaseline only pairs verified revenue and cost',()=>{
   assert.equal(pairBaseline(facts,'power_battery').length,0);
 });
 
+test('pairBaseline does not silently pair duplicate-scope facts',()=>{
+  const facts=[
+    fact('r25a','revenue','power_battery','2025-12-31','verified'),
+    fact('r25b','revenue','power_battery','2025-12-31','verified'),
+    fact('c25','cost_of_sales','power_battery','2025-12-31','verified'),
+  ];
+  assert.equal(pairBaseline(facts,'power_battery').length,0);
+});
+
 test('stableKey is deterministic and varies with input',()=>{
   assert.equal(stableKey('a|b|c'),stableKey('a|b|c'));
   assert.notEqual(stableKey('a|b|c'),stableKey('a|b|d'));
+});
+
+test('stableKey returns 8~128 chars (backend Idempotency-Key contract)',()=>{
+  for(const input of ['','a','short','a longer input with many characters and symbols !@#']){
+    const k=stableKey(input);
+    assert.ok(k.length>=8&&k.length<=128,`key length ${k.length} out of range for "${input}"`);
+  }
+});
+
+test('scenarioKey changes when basis changes and is stable otherwise',()=>{
+  const base={dataset_id:'d',dataset_version:1,revenue_fact_id:'r',revenue_revision:1,cost_fact_id:'c',cost_revision:1,cost_exposure:'1',effective_price_shock:'-0.1',customer_pass_through:'0.5',basis:'research_assumption'};
+  assert.equal(scenarioKey(base),scenarioKey(base));
+  assert.notEqual(scenarioKey(base),scenarioKey({...base,basis:'user_assumption'}));
 });

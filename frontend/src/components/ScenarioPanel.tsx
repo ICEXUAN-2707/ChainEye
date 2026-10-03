@@ -2,7 +2,7 @@ import {useEffect,useMemo,useState} from 'react';
 import type {Dataset,Fact,ScenarioRequest,ScenarioResult,Calculation} from '../api/generated';
 import {api,ApiError} from '../api/client';
 import {names,fmtAmount,fmtPp} from '../lib/format';
-import {pairBaseline,stableKey} from '../lib/scenario';
+import {pairBaseline,scenarioKey} from '../lib/scenario';
 
 const MODEL_VERSION='static-gross-profit-v1';
 const GRID_S=['0.05','0.10','0.20'];
@@ -48,12 +48,12 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
   // 切业务时回退到最新年度
   useEffect(()=>{setYear('');},[segment]);
 
-  // 基线/参数/版本变化时清除旧结果，避免旧结果挂在新的输入下（spec：旧结果过期）
+  // 基线/参数/版本/basis 变化时清除旧结果，避免旧结果挂在新的输入下（spec：旧结果过期）
   useEffect(()=>{
     setResult(null);setGrid(null);setCalcs({});
-  },[dataset.id,dataset.version,segment,revenue?.id,cost?.id,revenue?.revision,cost?.revision,s,x,k]);
+  },[dataset.id,dataset.version,segment,revenue?.id,cost?.id,revenue?.revision,cost?.revision,s,x,k,basis]);
 
-  const requestKey=(sv:string,xv:string,kv:string)=>`${dataset.id}|${dataset.version}|${revenue?.id}|${revenue?.revision}|${cost?.id}|${cost?.revision}|${sv}|${xv}|${kv}`;
+  const keyInput=(sv:string,xv:string,kv:string)=>({dataset_id:dataset.id,dataset_version:dataset.version,revenue_fact_id:revenue?.id??'',revenue_revision:revenue?.revision??1,cost_fact_id:cost?.id??'',cost_revision:cost?.revision??1,cost_exposure:sv,effective_price_shock:xv,customer_pass_through:kv,basis});
   const buildRequest=(sv:string,xv:string,kv:string):ScenarioRequest|null=>{
     if(!revenue||!cost)return null;
     return {dataset_id:dataset.id,dataset_version:dataset.version,revenue_fact_id:revenue.id,cost_fact_id:cost.id,revenue_revision:revenue.revision??1,cost_revision:cost.revision??1,model_version:MODEL_VERSION,assumptions:{cost_exposure:sv,effective_price_shock:xv,customer_pass_through:kv,basis,acknowledged:true}};
@@ -64,7 +64,7 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
     const body=buildRequest(s.trim(),x.trim(),k.trim());
     if(!body)return;
     setBusy(true);setError('');
-    try{setResult(await api.createScenario(body,stableKey(requestKey(s.trim(),x.trim(),k.trim()))));}
+    try{setResult(await api.createScenario(body,scenarioKey(keyInput(s.trim(),x.trim(),k.trim()))));}
     catch(e){setError(message(e));}
     finally{setBusy(false);}
   };
@@ -75,7 +75,7 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
       const rows=[];
       for(const sv of GRID_S)for(const xv of GRID_X)for(const kv of GRID_K){
         const body=buildRequest(sv,xv,kv)!;
-        rows.push({s:sv,x:xv,k:kv,r:await api.createScenario(body,stableKey(requestKey(sv,xv,kv)))});
+        rows.push({s:sv,x:xv,k:kv,r:await api.createScenario(body,scenarioKey(keyInput(sv,xv,kv)))});
       }
       setGrid(rows);
     }catch(e){setError(message(e));}
