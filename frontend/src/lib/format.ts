@@ -21,6 +21,13 @@ export function fmtRaw(raw:string|null|undefined,rawUnit:'CNY_thousand'|'percent
   return rawUnit==='percent'?`${raw}%`:`${raw} 千元`;
 }
 
+// 百分点（pp）已由后端按 *100 给出，前端不再乘 100，仅补正负号与保留两位。
+export function fmtPp(value:string|null|undefined):string{
+  if(value===null||value===undefined||value==='')return '—';
+  const n=Number(value);
+  return `${n>0?'+':''}${n.toFixed(2)} pp`;
+}
+
 export function periodOf(p:{period_kind:string;period_start?:string|null;period_end:string}):string{
   return p.period_kind==='point_in_time'?p.period_end:`${p.period_start} 至 ${p.period_end}`;
 }
