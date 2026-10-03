@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Chain Eye API",
-    "description": "R3 data, review, deterministic financial calculation, and conditional scenario workflow. Agent and report workflows are not implemented.",
-    "version": "0.2.0"
+    "description": "R4 persisted evidence-bound agent runs over immutable dataset snapshots. Report generation remains an R5 capability.",
+    "version": "0.3.0"
   },
   "paths": {
     "/health": {
