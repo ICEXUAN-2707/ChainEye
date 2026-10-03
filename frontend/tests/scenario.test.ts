@@ -63,8 +63,15 @@ test('stableKey returns 8~128 chars (backend Idempotency-Key contract)',()=>{
   }
 });
 
-test('scenarioKey changes when basis changes and is stable otherwise',()=>{
+test('scenarioKey covers every variable request identity field',()=>{
   const base={dataset_id:'d',dataset_version:1,revenue_fact_id:'r',revenue_revision:1,cost_fact_id:'c',cost_revision:1,cost_exposure:'1',effective_price_shock:'-0.1',customer_pass_through:'0.5',basis:'research_assumption'};
   assert.equal(scenarioKey(base),scenarioKey(base));
-  assert.notEqual(scenarioKey(base),scenarioKey({...base,basis:'user_assumption'}));
+  const variants=[
+    {...base,dataset_id:'d2'},{...base,dataset_version:2},
+    {...base,revenue_fact_id:'r2'},{...base,revenue_revision:2},
+    {...base,cost_fact_id:'c2'},{...base,cost_revision:2},
+    {...base,cost_exposure:'0.5'},{...base,effective_price_shock:'0.1'},
+    {...base,customer_pass_through:'1'},{...base,basis:'user_assumption'},
+  ];
+  for(const variant of variants)assert.notEqual(scenarioKey(base),scenarioKey(variant));
 });

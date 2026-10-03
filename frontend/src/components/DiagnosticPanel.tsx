@@ -14,22 +14,27 @@ function fmtValue(f:Fact):string{
 export function DiagnosticPanel({facts}:{facts:Fact[]}){
   const [segment,setSegment]=useState<'group'|'power_battery'|'energy_storage'>('group');
   const reviewed=facts.filter(f=>f.segment===segment&&(f.status==='verified'||f.status==='missing'));
-  const byYear=(metric:string):Record<string,Fact>=>{
-    const out:Record<string,Fact>={};
-    for(const f of reviewed)if(f.metric===metric)out[(f.period_end??'').slice(0,4)]=f;
+  const byYear=(metric:string):Record<string,Fact[]>=>{
+    const out:Record<string,Fact[]>={};
+    for(const f of reviewed)if(f.metric===metric){
+      const year=(f.period_end??'').slice(0,4);
+      (out[year]??=[]).push(f);
+    }
     return out;
   };
+  const yearValue=(items:Fact[]|undefined)=>!items?.length?'—':items.length>1?'口径歧义·请复核':fmtValue(items[0]);
   const renderGroup=(title:string,list:string[])=>(
     <div className="table"><table>
       <thead><tr><th>{title}</th><th>2024</th><th>2025</th><th>口径说明</th></tr></thead>
       <tbody>{list.map(m=>{
         const y=byYear(m);const f2024=y['2024'];const f2025=y['2025'];
         if(!f2024&&!f2025)return null;
+        const sample=f2025?.[0]??f2024?.[0];
         return <tr key={m}>
           <td>{metrics[m]}</td>
-          <td>{f2024?fmtValue(f2024):'—'}</td>
-          <td>{f2025?fmtValue(f2025):'—'}</td>
-          <td className="muted">{((f2025??f2024)?.period_kind)==='point_in_time'?'期末余额':'全年流量'}{m==='reported_gross_margin'?'·披露值':''}</td>
+          <td>{yearValue(f2024)}</td>
+          <td>{yearValue(f2025)}</td>
+          <td className="muted">{sample?.period_kind==='point_in_time'?'期末余额':'全年流量'}{m==='reported_gross_margin'?'·披露值':''}</td>
         </tr>;
       })}</tbody>
     </table></div>

@@ -48,6 +48,8 @@ function App(){
     return loadFacts(d.id,d.version);
   },[selected,datasets]);
 
+  useEffect(()=>{setReviewing(null);setEvidence(null);setEvidenceError('');},[selected]);
+
   useEffect(()=>{
     setEvidence(null);
     setEvidenceError('');

@@ -12,8 +12,8 @@ const GRID_K=['0','0.5','1'];
 function message(e:unknown):string{
   if(e instanceof ApiError){
     const reason=e.details&&typeof e.details==='object'&&'reason' in e.details?String((e.details as Record<string,unknown>).reason):'';
-    if(e.code==='INVALID_INPUT'&&reason==='IDEMPOTENCY_KEY_REUSED')return '相同参数的情景已存在，已复用既有结果。';
-    if(e.code==='NOT_IMPLEMENTED')return '情景接口尚待实现（后端 R3 未完成）。';
+    if(e.code==='INVALID_INPUT'&&reason==='IDEMPOTENCY_KEY_REUSED')return '本次请求与该幂等键原先对应的参数不一致，请刷新数据后重试。';
+    if(e.code==='NOT_IMPLEMENTED')return '当前后端未启用情景接口，请确认已启动 R3 版本。';
     return `${e.message}（${e.code}，${e.requestId}）`;
   }
   return e instanceof Error?e.message:'情景计算失败';
@@ -37,7 +37,9 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
   const [error,setError]=useState('');
   const [result,setResult]=useState<ScenarioResult|null>(null);
   const [grid,setGrid]=useState<Array<{s:string;x:string;k:string;r:ScenarioResult}>|null>(null);
+  const [gridProgress,setGridProgress]=useState<{completed:number;total:number}|null>(null);
   const [calcs,setCalcs]=useState<Record<string,Calculation>>({});
+  const [staleNotice,setStaleNotice]=useState(false);
 
   // 同口径配对，最新年度在前
   const pairs=useMemo(()=>pairBaseline(facts,segment),[facts,segment]);
@@ -52,7 +54,8 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
   // 基线/参数/版本/basis 变化时清除旧结果并失效在途请求，避免旧结果或旧异步响应挂在新的输入下（spec：旧结果过期）
   useEffect(()=>{
     genRef.current++;
-    setResult(null);setGrid(null);setCalcs({});setBusy(false);
+    setStaleNotice(result!==null||grid!==null);
+    setResult(null);setGrid(null);setGridProgress(null);setCalcs({});setBusy(false);setError('');
   },[dataset.id,dataset.version,segment,revenue?.id,cost?.id,revenue?.revision,cost?.revision,s,x,k,basis]);
 
   const keyInput=(sv:string,xv:string,kv:string)=>({dataset_id:dataset.id,dataset_version:dataset.version,revenue_fact_id:revenue?.id??'',revenue_revision:revenue?.revision??1,cost_fact_id:cost?.id??'',cost_revision:cost?.revision??1,cost_exposure:sv,effective_price_shock:xv,customer_pass_through:kv,basis});
@@ -69,30 +72,35 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
     setBusy(true);setError('');
     try{
       const r=await api.createScenario(body,scenarioKey(keyInput(s.trim(),x.trim(),k.trim())));
-      if(gen===genRef.current)setResult(r);
+      if(gen===genRef.current){setResult(r);setCalcs({});setStaleNotice(false);}
     }catch(e){if(gen===genRef.current)setError(message(e));}
-    finally{setBusy(false);}
+    finally{if(gen===genRef.current)setBusy(false);}
   };
   const runGrid=async()=>{
     if(!canRun)return;
     const gen=genRef.current;
-    setBusy(true);setError('');setGrid(null);
+    setBusy(true);setError('');setGrid([]);setGridProgress({completed:0,total:27});
     try{
-      const rows=[];
+      const rows:Array<{s:string;x:string;k:string;r:ScenarioResult}>=[];
       for(const sv of GRID_S)for(const xv of GRID_X)for(const kv of GRID_K){
+        if(gen!==genRef.current)return;
         const body=buildRequest(sv,xv,kv)!;
-        rows.push({s:sv,x:xv,k:kv,r:await api.createScenario(body,scenarioKey(keyInput(sv,xv,kv)))});
+        const r=await api.createScenario(body,scenarioKey(keyInput(sv,xv,kv)));
+        if(gen!==genRef.current)return;
+        rows.push({s:sv,x:xv,k:kv,r});
+        setGrid([...rows]);setGridProgress({completed:rows.length,total:27});
       }
-      if(gen===genRef.current)setGrid(rows);
+      if(gen===genRef.current)setStaleNotice(false);
     }catch(e){if(gen===genRef.current)setError(message(e));}
-    finally{setBusy(false);}
+    finally{if(gen===genRef.current)setBusy(false);}
   };
   const openCalc=async(id:string)=>{
     if(calcs[id])return;
+    const gen=genRef.current;
     try{
       const c=await api.calculation(id);
-      setCalcs(prev=>({...prev,[id]:c}));
-    }catch(e){setError(message(e));}
+      if(gen===genRef.current)setCalcs(prev=>({...prev,[id]:c}));
+    }catch(e){if(gen===genRef.current)setError(message(e));}
   };
 
   return <section className="panel">
@@ -123,6 +131,7 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
         <button onClick={run} disabled={!canRun}>{busy?'计算中…':'运行情景'}</button>
         <button onClick={runGrid} disabled={!canRun}>运行 27 格点敏感性</button>
       </div>
+      {staleNotice&&<p role="status" className="stale">基线或假设已经变化，上一结果已过期且不再展示，请重新运行。</p>}
       {error&&<p role="alert" className="error">{error}</p>}
       {result&&<div className="scenario-result">
         <p className="muted">模型 {result.model_version} · 假设编号 {result.assumption_id} · 数据包版本 v{result.dataset_version}</p>
@@ -144,10 +153,18 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
       </div>}
       {grid&&<div className="scenario-result">
         <h3>敏感性网格（27 组合，s×x×k）</h3>
-        <div className="table"><table>
-          <thead><tr><th>成本暴露 s</th><th>价格冲击 x</th><th>客户传导 k</th><th>情景毛利率</th><th>Δ毛利率</th></tr></thead>
-          <tbody>{grid.map(g=><tr key={`${g.s}:${g.x}:${g.k}`}><td>{g.s}</td><td>{g.x}</td><td>{g.k}</td><td>{fmtAmount(g.r.outputs.gross_margin,'ratio')}</td><td>{fmtPp(g.r.outputs.delta_gross_margin_pp)}</td></tr>)}</tbody>
-        </table></div>
+        <p className="muted">模型 {MODEL_VERSION} · 横轴：价格冲击 x（%）· 纵轴：成本暴露 s（%）· 单元格：情景毛利率 / Δ毛利率（pp）</p>
+        {gridProgress&&<p role="status" className="muted">已完成 {gridProgress.completed}/{gridProgress.total} 个格点{gridProgress.completed<gridProgress.total?'；中断时保留已完成结果。':''}</p>}
+        {GRID_K.map(kv=><div className="sensitivity" key={kv}>
+          <h4>固定客户传导 k = {fmtAmount(kv,'ratio')}</h4>
+          <div className="table"><table>
+            <thead><tr><th>s \ x</th>{GRID_X.map(xv=><th key={xv}>{fmtAmount(xv,'ratio')}</th>)}</tr></thead>
+            <tbody>{GRID_S.map(sv=><tr key={sv}><th>{fmtAmount(sv,'ratio')}</th>{GRID_X.map(xv=>{
+              const cell=grid.find(g=>g.s===sv&&g.x===xv&&g.k===kv);
+              return <td key={xv}>{cell?<>{fmtAmount(cell.r.outputs.gross_margin,'ratio')}<span className="muted">{fmtPp(cell.r.outputs.delta_gross_margin_pp)}</span></>:busy?'计算中…':'未完成'}</td>;
+            })}</tr>)}</tbody>
+          </table></div>
+        </div>)}
       </div>}
     </>}
   </section>;
