@@ -8,8 +8,9 @@ def get(url,origin=None):
  with urllib.request.urlopen(r,timeout=5) as response:return response.status,dict(response.headers),response.read()
 try:
  npm='npm.cmd' if os.name=='nt' else 'npm'
- for args,cwd in [([sys.executable,'tools/start_backend.py'],root),([npm,'run','dev'],root/'frontend')]:
-  procs.append(subprocess.Popen(args,cwd=cwd,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True))
+ backend_env=os.environ.copy();backend_env.pop('DEEPSEEK_API_KEY',None)
+ for args,cwd,env in [([sys.executable,'tools/start_backend.py'],root,backend_env),([npm,'run','dev'],root/'frontend',None)]:
+  procs.append(subprocess.Popen(args,cwd=cwd,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True))
  for i in range(100):
   try:
    a=get('http://127.0.0.1:8000/health');b=get('http://127.0.0.1:5173/')
@@ -34,8 +35,21 @@ try:
   scenario=client.post('/api/v1/scenarios',headers={'Idempotency-Key':f'smoke-{uuid.uuid4()}'},json={'dataset_id':'demo-catl-2025','dataset_version':1,'revenue_fact_id':'f-2025-power_battery-revenue','cost_fact_id':'f-2025-power_battery-cost_of_sales','revenue_revision':1,'cost_revision':1,'model_version':'static-gross-profit-v1','assumptions':{'cost_exposure':'0.1','effective_price_shock':'-0.2','customer_pass_through':'0.5','basis':'user_assumption','acknowledged':True}})
   scenario.raise_for_status();scenario_body=scenario.json();assert len(scenario_body['calculation_ids'])==9
   calculation=client.get(f"/api/v1/calculations/{scenario_body['calculation_ids'][0]}");calculation.raise_for_status();assert calculation.json()['input_revisions']['f-2025-power_battery-revenue']==1
- result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'fixture_facts':30,'evidence_page':25,'pdf':True,'upload':True,'upload_version':3,'extracted_candidates':15,'correction_revision':2,'reviewed_dataset_version':4,'duplicate_source_reused':True,'scenario':True,'scenario_calculations':9,'visual_browser_check':'separate check; see R1-browser-check.json'}
- (root/'validation/R3-http-smoke.json').write_text(json.dumps(result,indent=2),encoding='utf-8',newline='\n');print(json.dumps(result))
+  run_key=f'run-smoke-{uuid.uuid4()}'
+  run_response=client.post('/api/v1/runs',headers={'Idempotency-Key':run_key},json={'dataset_id':'demo-catl-2025','dataset_version':1,'question':'分析动力电池收入和毛利','segment':'power_battery','mode':'live'})
+  run_response.raise_for_status();run_id=run_response.json()['id']
+  repeated=client.post('/api/v1/runs',headers={'Idempotency-Key':run_key},json={'dataset_id':'demo-catl-2025','dataset_version':1,'question':'分析动力电池收入和毛利','segment':'power_battery','mode':'live'})
+  repeated.raise_for_status();assert repeated.json()['id']==run_id
+  for _ in range(100):
+   run=client.get(f'/api/v1/runs/{run_id}');run.raise_for_status();run_body=run.json()
+   if run_body['status'] not in ('queued','running'):break
+   time.sleep(.05)
+  assert run_body['status']=='partial';assert run_body['error']['code']=='MODEL_UNAVAILABLE';assert run_body['report_ready'] is False
+  first_events=client.get(f'/api/v1/runs/{run_id}/events',params={'limit':3});first_events.raise_for_status();first_page=first_events.json();assert first_page['has_more']
+  remaining=client.get(f'/api/v1/runs/{run_id}/events',params={'after_seq':first_page['next_after_seq'],'limit':200});remaining.raise_for_status();second_page=remaining.json();assert second_page['items'][0]['seq']==first_page['next_after_seq']+1
+  report=client.get(f'/api/v1/runs/{run_id}/report');assert report.status_code==501
+ result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'fixture_facts':30,'evidence_page':25,'pdf':True,'upload':True,'upload_version':3,'extracted_candidates':15,'correction_revision':2,'reviewed_dataset_version':4,'duplicate_source_reused':True,'scenario':True,'scenario_calculations':9,'run':True,'run_status_without_key':'partial','run_error_without_key':'MODEL_UNAVAILABLE','run_event_cursor':True,'report_boundary_501':True,'visual_browser_check':'separate check; see R1-browser-check.json'}
+ (root/'validation/R4-http-smoke.json').write_text(json.dumps(result,indent=2),encoding='utf-8',newline='\n');print(json.dumps(result))
 finally:
  for p in procs:
   if p.poll() is None:

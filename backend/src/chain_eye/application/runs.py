@@ -23,7 +23,7 @@ from chain_eye.domain.scenario import IdempotencyConflictError
 RUN_BUDGET_SECONDS=600
 MAX_MODEL_CALLS=12
 MAX_NODE_RETRIES=2
-SCENARIO_TERMS=('情景','敏感性','冲击','传导','假设','scenario','sensitivity','shock','impact')
+SCENARIO_TERMS=('情景','敏感性','冲击','传导','假设','scenario','sensitivity','shock')
 
 
 class RunExecutionService:
@@ -153,8 +153,9 @@ class RunExecutionService:
         self._budget(started,record)
 
         record=self._node(record,'scenario')
-        scenario_ids=record.get('scenario_ids',[]);assumption_ids=[]
-        scenario_requested=bool(request.assumptions) or any(term in request.question.casefold() for term in SCENARIO_TERMS)
+        scenario_ids=record.get('scenario_ids',[]);assumption_ids=[];question=request.question.casefold()
+        price_impact=any(term in question for term in ('价格','price')) and any(term in question for term in ('影响','impact'))
+        scenario_requested=bool(request.assumptions) or price_impact or any(term in question for term in SCENARIO_TERMS)
         if scenario_requested and request.assumptions is None:
             self.repository.update_run(run_id,status='waiting_review',current_node='scenario',missing_requirements=['scenario_assumptions'])
             self.repository.append_event(run_id,'node_status','scenario',{'status':'waiting_review','missing_requirements':['scenario_assumptions']})

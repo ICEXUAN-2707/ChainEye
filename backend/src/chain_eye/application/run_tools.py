@@ -101,7 +101,7 @@ class RunTools:
             if not refs_valid:status='rejected'
             elif numeric and not supported:status='insufficient'
             elif claim.review_status=='rejected':status='rejected'
-            elif supported:status='supported'
+            elif supported:status='pending'
             else:status='insufficient'
             validated.append(claim.model_copy(update={'review_status':status}))
         return validated

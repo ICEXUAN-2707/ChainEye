@@ -67,7 +67,7 @@ class R4Runs(unittest.TestCase):
     def test_live_run_persists_supported_claims_calculations_and_events(self):
         _,run,record=self.execute()
         self.assertEqual(run.status,'completed');self.assertFalse(run.report_ready);self.assertEqual(run.current_node,'verify')
-        self.assertEqual(len(record['calculation_ids']),6);self.assertEqual(record['claims'][0]['review_status'],'supported')
+        self.assertEqual(len(record['calculation_ids']),6);self.assertEqual(record['claims'][0]['review_status'],'pending')
         events,after,more=self.repo.list_run_events(run.id,0,200)
         self.assertEqual([event.seq for event in events],list(range(1,len(events)+1)));self.assertEqual(after,len(events));self.assertFalse(more)
         tools={event.payload['tool_name'] for event in events if event.type=='tool_call'}
@@ -91,7 +91,7 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(caught.exception.status,409)
 
     def test_scenario_waits_for_assumptions_then_resumes(self):
-        service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(question='分析原材料价格冲击'),'scenario-run')
+        service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(question='分析原材料价格变化对毛利的影响'),'scenario-run')
         self.repo.claim_next_run();service.execute(run.id)
         waiting=self.repo.get_run(run.id);self.assertEqual(waiting.status,'waiting_review');self.assertEqual(waiting.missing_requirements,['scenario_assumptions'])
         from chain_eye.api.dto import ResumeRequest
