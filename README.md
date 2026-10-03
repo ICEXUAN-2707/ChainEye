@@ -1,4 +1,4 @@
-# 链眼 宁德时代 R3 财务与情景后端
+# 链眼 宁德时代 R3 财务与情景
 
 R1基线冻结日期：2026-09-30。两名开发者从同一契约开始，Codex负责后端，Claude负责前端。
 先读 `docs/06_严格交叉自检.md` 和 `validation/R1验收记录.md`，再读PRD、Spec及各自 `tasks/` 任务书。
@@ -7,11 +7,11 @@ R1基线冻结日期：2026-09-30。两名开发者从同一契约开始，Codex
 30条财报标注再次核对原件，未发现数值错误。R0的44项检查保留，不能视为自动提取准确率。
 R1实现SQLite迁移与持久化、版本快照读取、核对样本seed、事实筛选、来源与证据查看、PDF服务、统一错误、生成契约及React工作台。
 45项测试、干净Python环境安装、前端构建及真实HTTP联调通过。详细命令与限制见验收记录。
-R2后端已在上传块之上实现PyMuPDF文本层解析、限定版式候选事实提取、PDF页码/bbox证据定位及人工更正的revision/version原子事务。自动候选只写`extracted`、`missing`或`conflict`，不会写`verified`。R3后端已启用六项确定性财务规则与HTTP条件情景：只接受精确数据快照内已复核、同口径的动力电池或储能收入/成本，落库不可变计算快照，并提供dataset范围24小时幂等保护。Agent、DeepSeek和报告仍未实现；相应写入口继续返回501。
+R2后端已在上传块之上实现PyMuPDF文本层解析、限定版式候选事实提取、PDF页码/bbox证据定位及人工更正的revision/version原子事务。自动候选只写`extracted`、`missing`或`conflict`，不会写`verified`。R3后端已启用六项确定性财务规则与HTTP条件情景：只接受精确数据快照内已复核、同口径的动力电池或储能收入/成本，落库不可变计算快照，并提供dataset范围24小时幂等保护。R3前端提供两业务基线选择、显式假设确认、单次情景、27点敏感性矩阵、过期状态和Calculation溯源；财务诊断页仅展示已复核披露事实，权威诊断计算仍按Spec由后续Run的`compute_financials`工具接入报告。Agent、DeepSeek和报告仍未实现；相应写入口继续返回501。
 价格仅一个日期两个不同系列，不能做历史均价或回测。标注仍是助手复核样本，团队人工签核待完成。
 
 ## 安装与启动
-Python 3.12、Node 22或24；本轮实测Linux。进入项目根：
+Python 3.12、Node 22或24；本轮已在Linux及Windows PowerShell运行自动化检查。进入项目根：
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -25,7 +25,7 @@ npm ci
 npm run dev
 ```
 访问 http://127.0.0.1:5173 ，API在 http://127.0.0.1:8000 ，接口文档 `/docs`。
-Windows PowerShell激活 `.venv\Scripts\Activate.ps1`；运行下面测试时设置 `$env:PYTHONPATH="backend/src"`。Windows尚未实机验证。
+Windows PowerShell激活 `.venv\Scripts\Activate.ps1`；运行下面测试时设置 `$env:PYTHONPATH="backend/src"`。Windows已验证全量测试、构建和真实本地HTTP冒烟；可见浏览器界面仍需人工复核。
 只允许本机访问；R1不能直接部署公网。SQLite保存在 `.runtime/`，删除该目录会清除本地数据，不影响打包原件。
 
 ## 复核与契约生成
