@@ -19,7 +19,7 @@ class API(unittest.TestCase):
  def tearDown(self):self.client.close();self.tmp.cleanup()
  def check_error(self,response,status,code):
   self.assertEqual(response.status_code,status);e=ErrorResponse.model_validate(response.json());self.assertEqual(e.error.code,code);self.assertTrue(e.error.request_id)
- def test_health(self):self.assertEqual(self.client.get('/health').json()['stage'],'R3')
+ def test_health(self):self.assertEqual(self.client.get('/health').json()['stage'],'R4')
  def test_facts(self):
   r=self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1');self.assertEqual(r.status_code,200);data=FactCollection.model_validate(r.json());self.assertEqual(len(data.items),30)
  def test_filter(self):self.assertEqual(len(self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1&segment=power_battery').json()['items']),6)
