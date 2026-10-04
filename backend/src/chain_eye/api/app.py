@@ -12,6 +12,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from chain_eye.api.dto import *
 from chain_eye.domain.contracts import ScenarioRequest,ScenarioResult,Evidence,Calculation
 from chain_eye.adapters.sqlite import SQLiteRepository
+from chain_eye.adapters.deepseek import DeepSeekAdapter
 from chain_eye.application.errors import AppError
 from chain_eye.application.source_upload import MAX_PDF_BYTES,SourceUploadService,sha256_file
 from chain_eye.application.extraction import ExtractionService
@@ -27,7 +28,7 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
     repo=SQLiteRepository(db_path or os.getenv('CHAIN_EYE_DB',str(ROOT/'.runtime/chain_eye.sqlite')),ROOT,upload_dir)
     if seed:repo.seed()
     uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo)
-    runs=RunExecutionService(repo,llm);worker=RunWorker(repo,runs)
+    runs=RunExecutionService(repo,llm or DeepSeekAdapter());worker=RunWorker(repo,runs)
     @asynccontextmanager
     async def lifespan(_app):
         if repo.has_unfinished_runs():worker.submit()

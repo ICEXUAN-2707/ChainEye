@@ -96,4 +96,4 @@ RunCreate约束：mode=replay必须给replay_run_id；源Run属于同owner且快
 所有来源、证据、事实引用均检查dataset/version/owner，ID存在性不足以证明访问合法。
 
 ## R1实现状态与契约权威
-当前仍为本机单用户。R1历史实现状态见validation/R1验收记录.md；R2后端已开放PDF上传、校验、哈希去重、限定版式确定性提取、证据定位和人工复核revision/version事务。R3后端已实现六项财务规则、条件情景、计算快照与dataset范围幂等事务。R4后端已启用冻结的Run、事件和恢复接口、白名单工具编排、DeepSeek适配、Claim校验及不调用模型的同快照回放；真实付费API三次验收仍待具备密钥的环境执行。报告与导出继续保持R5边界。上传返回提取完成后的SourceAttachment（最新Dataset及Source），事实查询version必填。Source身份独立于数据包。HTTP DTO位于api/dto.py，领域数据位于domain；生成规范与实际路由一致。
+当前仍为本机单用户。R1历史实现状态见validation/R1验收记录.md；R2后端已开放PDF上传、校验、哈希去重、限定版式确定性提取、证据定位和人工复核revision/version事务。R3后端已实现六项财务规则、条件情景、计算快照与dataset范围幂等事务。R4后端已启用冻结的Run、事件和恢复接口、白名单工具编排、DeepSeek适配、Claim校验及不调用模型的同快照回放；2026-10-04已在临时数据库完成真实API三次端到端验收，供应商响应未直接提供费用字段，费用仍需账单侧核对。报告与导出继续保持R5边界。上传返回提取完成后的SourceAttachment（最新Dataset及Source），事实查询version必填。Source身份独立于数据包。HTTP DTO位于api/dto.py，领域数据位于domain；生成规范与实际路由一致。
