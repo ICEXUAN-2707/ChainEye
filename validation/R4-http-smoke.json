@@ -1,0 +1,23 @@
+{
+  "status": "passed",
+  "real_http": true,
+  "frontend_html": true,
+  "cors": true,
+  "fixture_facts": 30,
+  "evidence_page": 25,
+  "pdf": true,
+  "upload": true,
+  "upload_version": 3,
+  "extracted_candidates": 15,
+  "correction_revision": 2,
+  "reviewed_dataset_version": 4,
+  "duplicate_source_reused": true,
+  "scenario": true,
+  "scenario_calculations": 9,
+  "run": true,
+  "run_status_without_key": "partial",
+  "run_error_without_key": "MODEL_UNAVAILABLE",
+  "run_event_cursor": true,
+  "report_boundary_501": true,
+  "visual_browser_check": "separate check; see R1-browser-check.json"
+}

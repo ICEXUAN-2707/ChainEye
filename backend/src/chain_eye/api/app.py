@@ -1,5 +1,6 @@
 import os
 import tempfile
+from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
 from typing import Annotated, Literal
@@ -11,22 +12,30 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from chain_eye.api.dto import *
 from chain_eye.domain.contracts import ScenarioRequest,ScenarioResult,Evidence,Calculation
 from chain_eye.adapters.sqlite import SQLiteRepository
+from chain_eye.adapters.deepseek import DeepSeekAdapter
 from chain_eye.application.errors import AppError
 from chain_eye.application.source_upload import MAX_PDF_BYTES,SourceUploadService,sha256_file
 from chain_eye.application.extraction import ExtractionService
 from chain_eye.application.fact_review import FactReviewService
 from chain_eye.application.scenarios import ScenarioExecutionService
+from chain_eye.application.runs import RunExecutionService,RunWorker
 
 ROOT=Path(__file__).resolve().parents[4]
 RESPONSES={n:{'model':ErrorResponse,'description':t} for n,t in [(403,'local access only'),(404,'not found'),(409,'conflict'),(422,'invalid input'),(429,'budget exceeded'),(500,'internal failure'),(501,'not implemented in current slice'),(503,'provider unavailable')]}
 
-def create_app(db_path=None,seed=True,upload_dir=None):
+def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
     if os.getenv('CHAIN_EYE_MODE','local')!='local': raise RuntimeError('R1 supports local mode only; public authentication not implemented')
     repo=SQLiteRepository(db_path or os.getenv('CHAIN_EYE_DB',str(ROOT/'.runtime/chain_eye.sqlite')),ROOT,upload_dir)
     if seed:repo.seed()
     uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo)
-    app=FastAPI(title='Chain Eye API',version='0.2.0',description='R3 data, review, deterministic financial calculation, and conditional scenario workflow. Agent and report workflows are not implemented.')
-    app.state.repository=repo
+    runs=RunExecutionService(repo,llm or DeepSeekAdapter());worker=RunWorker(repo,runs)
+    @asynccontextmanager
+    async def lifespan(_app):
+        if repo.has_unfinished_runs():worker.submit()
+        try:yield
+        finally:worker.stop()
+    app=FastAPI(title='Chain Eye API',version='0.3.0',description='R4 persisted evidence-bound agent runs over immutable dataset snapshots. Report generation remains an R5 capability.',lifespan=lifespan)
+    app.state.repository=repo;app.state.run_service=runs;app.state.run_worker=worker
     app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_methods=['GET','POST','PATCH'],allow_headers=['Content-Type','Idempotency-Key'],allow_credentials=False)
     def error(code,message,status,request_id,details=None,retryable=False):
         return JSONResponse(status_code=status,content=ErrorResponse(error=ErrorBody(code=code,message=message,details=details or {},retryable=retryable,request_id=request_id)).model_dump(mode='json'))
@@ -58,7 +67,7 @@ def create_app(db_path=None,seed=True,upload_dir=None):
         return v
     def pending(round):raise AppError('NOT_IMPLEMENTED',f'该能力计划在{round}实现，当前交付块未执行该操作',501)
     @app.get('/health',operation_id='health')
-    def health():return {'status':'ok','stage':'R3','mode':'local','schema_version':'0.2.0','data_basis':'reviewed_fixture_and_user_upload'}
+    def health():return {'status':'ok','stage':'R4','mode':'local','schema_version':'0.3.0','data_basis':'reviewed_fixture_and_user_upload'}
     @app.post('/api/v1/datasets',response_model=Dataset,status_code=201,responses=RESPONSES,operation_id='createDataset')
     def create_dataset(body:DatasetCreate):return repo.create(body)
     @app.get('/api/v1/datasets',response_model=DatasetCollection,responses=RESPONSES,operation_id='listDatasets')
@@ -91,14 +100,22 @@ def create_app(db_path=None,seed=True,upload_dir=None):
     def correct_fact(id:str,body:FactCorrection):return review.correct(id,body)
     @app.post('/api/v1/runs',response_model=Run,status_code=202,responses=RESPONSES,operation_id='createRun')
     def create_run(body:RunCreate,idempotency_key:Annotated[str,Header(min_length=8,max_length=128,alias='Idempotency-Key')]):
-        required_dataset(body.dataset_id,body.dataset_version);pending('R4')
+        required_dataset(body.dataset_id,body.dataset_version);run,created=runs.create_with_status(body,idempotency_key)
+        if created:worker.submit()
+        return run
     @app.get('/api/v1/runs/{id}',response_model=Run,responses=RESPONSES,operation_id='getRun')
-    def get_run(id:str):return required('runs',id)
+    def get_run(id:str):
+        run=repo.get_run(id)
+        if run is None:raise AppError('NOT_FOUND','资源不存在',404)
+        return run
     @app.get('/api/v1/runs/{id}/events',response_model=EventCollection,responses=RESPONSES,operation_id='getRunEvents')
     def events(id:str,after_seq:int=Query(default=0,ge=0),limit:int=Query(default=100,ge=1,le=200)):
-        required('runs',id);pending('R4')
+        if repo.get_run(id) is None:raise AppError('NOT_FOUND','资源不存在',404)
+        items,next_after_seq,has_more=repo.list_run_events(id,after_seq,limit)
+        return EventCollection(items=items,next_after_seq=next_after_seq,has_more=has_more)
     @app.post('/api/v1/runs/{id}/resume',response_model=Run,status_code=202,responses=RESPONSES,operation_id='resumeRun')
-    def resume(id:str,body:ResumeRequest):required('runs',id);pending('R4')
+    def resume(id:str,body:ResumeRequest):
+        run=runs.resume(id,body);worker.submit();return run
     @app.post('/api/v1/scenarios',response_model=ScenarioResult,status_code=201,responses=RESPONSES,operation_id='createScenario')
     def scenario(body:ScenarioRequest,idempotency_key:Annotated[str,Header(min_length=8,max_length=128,alias='Idempotency-Key')]):
         return scenarios.execute(body,idempotency_key)

@@ -8,6 +8,7 @@ import {FactTable} from './components/FactTable';
 import {ReviewForm} from './components/ReviewForm';
 import {ScenarioPanel} from './components/ScenarioPanel';
 import {DiagnosticPanel} from './components/DiagnosticPanel';
+import {RunPanel} from './components/RunPanel';
 
 function message(e:unknown){return e instanceof ApiError?`${e.message}（${e.payload.error.code}，${e.payload.error.request_id}）`:e instanceof Error?e.message:'无法读取数据';}
 const SEGMENTS=['all','group','power_battery','energy_storage'];
@@ -19,7 +20,7 @@ function App(){
   const [facts,setFacts]=useState<Fact[]>([]);
   const [segment,setSegment]=useState('all');
   const [statusF,setStatusF]=useState('all');
-  const [view,setView]=useState<'review'|'diagnostic'|'research'>('review');
+  const [view,setView]=useState<'review'|'diagnostic'|'research'|'run'>('review');
   const [reviewing,setReviewing]=useState<Fact|null>(null);
   const [evidence,setEvidence]=useState<Evidence|null>(null);
   const [evidenceLoading,setEvidenceLoading]=useState(false);
@@ -83,13 +84,14 @@ function App(){
   const d=datasets.find(x=>x.id===selected);
 
   return <main>
-    <header><div><p>链眼 · 契约 v{CONTRACT_VERSION}</p><h1>宁德时代研究工作台</h1></div><span>R3 上传·复核·情景</span></header>
+    <header><div><p>链眼 · 契约 v{CONTRACT_VERSION}</p><h1>宁德时代研究工作台</h1></div><span>R4 上传·复核·情景·研究任务</span></header>
     <aside className="notice">上传年报后由后端提取候选事实，需人工对照原文复核后方可标记「已复核」。情景研究仅使用已复核基线，结果为条件情景，不构成预测或投资建议。</aside>
     <UploadPanel datasetId={selected} onUploaded={onUploaded}/>
     <nav className="tabs">
       <button className={view==='review'?'tab active':'tab'} onClick={()=>setView('review')}>数据复核</button>
       <button className={view==='diagnostic'?'tab active':'tab'} onClick={()=>setView('diagnostic')}>财务诊断</button>
       <button className={view==='research'?'tab active':'tab'} onClick={()=>setView('research')}>情景研究</button>
+      <button className={view==='run'?'tab active':'tab'} onClick={()=>setView('run')}>研究任务</button>
     </nav>
     <section className="controls">
       <label>数据包<select value={selected} onChange={e=>setSelected(e.target.value)}>{datasets.map(x=><option key={x.id} value={x.id}>{x.name} · 版本{x.version}</option>)}</select></label>
@@ -104,7 +106,9 @@ function App(){
         :<FactTable facts={visible} onSelect={setReviewing} onEvidence={setReviewing}/>}</section>
       :view==='diagnostic'
         ?<DiagnosticPanel facts={facts}/>
-        :(d?<ScenarioPanel dataset={d} facts={facts}/>:<p>请先选择数据包。</p>)}
+        :view==='research'
+          ?(d?<ScenarioPanel dataset={d} facts={facts}/>:<p>请先选择数据包。</p>)
+          :(d?<RunPanel key={`${d.id}:${d.version}`} dataset={d}/>:<p>请先选择数据包。</p>)}
   </main>;
 }
 export default App;

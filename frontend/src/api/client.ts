@@ -1,4 +1,4 @@
-import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation} from './generated';
+import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation, RunCreate, Run, EventCollection, ResumeRequest} from './generated';
 
 export const BASE_URL='http://127.0.0.1:8000';
 
@@ -12,7 +12,7 @@ export class ApiError extends Error {
 
 function toError(status:number,body:unknown):ApiError{
   if(body && typeof body==='object' && 'error' in body)return new ApiError(status,body as ErrorResponse);
-  return new ApiError(status,{error:{code:'HTTP_ERROR',message:`接口异常 HTTP ${status}`,details:undefined,retryable:false,request_id:''}});
+  return new ApiError(status,{error:{code:'HTTP_ERROR',message:`接口异常 HTTP ${status}`,details:{},retryable:false,request_id:''}});
 }
 
 async function request<T>(path:string,init:RequestInit={}):Promise<T>{
@@ -46,6 +46,16 @@ export const api={
   correctFact:(id:string,body:FactCorrection)=>request<Fact>(`/api/v1/facts/${encodeURIComponent(id)}`,json('PATCH',body)),
   createScenario:(body:ScenarioRequest,idempotencyKey:string)=>request<ScenarioResult>('/api/v1/scenarios',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(body)}),
   calculation:(id:string,signal?:AbortSignal)=>request<Calculation>(`/api/v1/calculations/${encodeURIComponent(id)}`,{signal}),
+  createRun:(body:RunCreate,idempotencyKey:string,signal?:AbortSignal)=>request<Run>('/api/v1/runs',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(body),signal}),
+  run:(id:string,signal?:AbortSignal)=>request<Run>(`/api/v1/runs/${encodeURIComponent(id)}`,{signal}),
+  runEvents:(id:string,opts?:{afterSeq?:number;limit?:number;signal?:AbortSignal})=>{
+    const p=new URLSearchParams();
+    if(opts?.afterSeq!==undefined)p.set('after_seq',String(opts.afterSeq));
+    if(opts?.limit!==undefined)p.set('limit',String(opts.limit));
+    const q=p.toString();
+    return request<EventCollection>(`/api/v1/runs/${encodeURIComponent(id)}/events${q?`?${q}`:''}`,{signal:opts?.signal});
+  },
+  resumeRun:(id:string,body:ResumeRequest,signal?:AbortSignal)=>request<Run>(`/api/v1/runs/${encodeURIComponent(id)}/resume`,{...json('POST',body),signal}),
   evidence:(id:string,signal?:AbortSignal)=>request<Evidence>(`/api/v1/evidence/${encodeURIComponent(id)}`,{signal}),
   source:(id:string,signal?:AbortSignal)=>request<Source>(`/api/v1/sources/${encodeURIComponent(id)}`,{signal}),
 };

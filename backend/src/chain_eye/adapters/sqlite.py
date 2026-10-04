@@ -1,10 +1,11 @@
 import sqlite3, json, hashlib
 from contextlib import contextmanager
 from pathlib import Path
-from datetime import datetime,timezone
+from datetime import datetime,timedelta,timezone
 from uuid import uuid4
 from chain_eye.domain.datasets import Dataset,DatasetCreate,Source,SourceAttachment,DatasetSourceLimitError
-from chain_eye.domain.contracts import Fact,Evidence,ScenarioResult
+from chain_eye.api.dto import Event,Run,RunCreate
+from chain_eye.domain.contracts import Fact,Evidence,ScenarioResult,ErrorBody
 from chain_eye.domain.review import EvidenceScopeError,FactNotFoundError,FactRevisionConflictError,FactScopeError
 from chain_eye.domain.scenario import (
     IdempotencyConflictError,ScenarioEvidenceNotFoundError,
@@ -45,6 +46,143 @@ class SQLiteRepository:
         if table not in ('sources','evidence','calculations','runs'):raise ValueError('unknown table')
         with self.connect() as db:row=db.execute(f'SELECT body FROM {table} WHERE id=?',(id,)).fetchone()
         return json.loads(row[0]) if row else None
+
+    @staticmethod
+    def _canonical_hash(value):
+        canonical=json.dumps(value,sort_keys=True,separators=(',',':'),ensure_ascii=False)
+        return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
+
+    @staticmethod
+    def _public_run(record,current_version=None):
+        error=ErrorBody.model_validate(record['error']) if record.get('error') else None
+        stale=bool(current_version is not None and current_version!=record['dataset_version'])
+        return Run(
+            id=record['id'],dataset_id=record['dataset_id'],dataset_version=record['dataset_version'],
+            status=record['status'],mode=record['mode'],current_node=record.get('current_node'),
+            missing_requirements=record.get('missing_requirements',[]),stale=stale,error=error,
+            report_ready=False,
+        )
+
+    def get_run_record(self,id):
+        with self.connect() as db:
+            row=db.execute('SELECT body FROM runs WHERE id=?',(id,)).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def get_run(self,id):
+        record=self.get_run_record(id)
+        if record is None:return None
+        current=self.get_dataset(record['dataset_id'])
+        return self._public_run(record,current.version if current else None)
+
+    def create_run(self,request:RunCreate,idempotency_key:str,model_config:dict,prompt_version:str):
+        request_body=request.model_dump(mode='json')
+        body_hash=self._canonical_hash(request_body);scope=f"run:{request.dataset_id}"
+        now=datetime.now(timezone.utc);expires_at=now+timedelta(hours=24)
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT body_hash,response_body,expires_at FROM idempotency WHERE scope=? AND key=?',(scope,idempotency_key)).fetchone()
+            if row and datetime.fromisoformat(row[2])>now:
+                if row[0]!=body_hash:raise IdempotencyConflictError('idempotency key reused')
+                run_id=json.loads(row[1])['run_id']
+                run_row=db.execute('SELECT body FROM runs WHERE id=?',(run_id,)).fetchone()
+                if run_row is None:raise RuntimeError('idempotency record references missing run')
+                record=json.loads(run_row[0])
+                current=db.execute('SELECT current_version FROM datasets WHERE id=?',(record['dataset_id'],)).fetchone()
+                return self._public_run(record,current[0] if current else None),False
+            if row:db.execute('DELETE FROM idempotency WHERE scope=? AND key=?',(scope,idempotency_key))
+            run_id=str(uuid4())
+            record={
+                'id':run_id,'dataset_id':request.dataset_id,'dataset_version':request.dataset_version,
+                'status':'queued','mode':request.mode,'current_node':None,'missing_requirements':[],
+                'error':None,'request':request_body,'owner_id':'local','created_at':now.isoformat(),
+                'updated_at':now.isoformat(),'model_config':model_config,'prompt_version':prompt_version,
+                'claims':[],'calculation_ids':[],'scenario_ids':[],'model_calls':0,'node_retries':{},
+            }
+            db.execute('INSERT INTO runs VALUES (?,?,?,?)',(run_id,request.dataset_id,request.dataset_version,json.dumps(record,ensure_ascii=False,separators=(',',':'))))
+            db.execute('INSERT INTO idempotency VALUES (?,?,?,?,?)',(scope,idempotency_key,body_hash,json.dumps({'run_id':run_id}),expires_at.isoformat()))
+        return self._public_run(record,request.dataset_version),True
+
+    def update_run(self,id,**changes):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT body FROM runs WHERE id=?',(id,)).fetchone()
+            if row is None:return None
+            record=json.loads(row[0]);record.update(changes);record['updated_at']=datetime.now(timezone.utc).isoformat()
+            db.execute('UPDATE runs SET body=? WHERE id=?',(json.dumps(record,ensure_ascii=False,separators=(',',':')),id))
+        return record
+
+    def claim_next_run(self):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            rows=db.execute('SELECT id,body FROM runs ORDER BY rowid').fetchall()
+            for run_id,body in rows:
+                record=json.loads(body)
+                if record['status']!='queued':continue
+                record.update(status='running',error=None,missing_requirements=[])
+                record['updated_at']=datetime.now(timezone.utc).isoformat()
+                db.execute('UPDATE runs SET body=? WHERE id=?',(json.dumps(record,ensure_ascii=False,separators=(',',':')),run_id))
+                return run_id
+        return None
+
+    def recover_interrupted_runs(self):
+        recovered=[];stopped=[]
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            for run_id,body in db.execute('SELECT id,body FROM runs').fetchall():
+                record=json.loads(body)
+                if record['status']!='running':continue
+                node=record.get('current_node')
+                safe=(node in (None,'plan','extract','validate','scenario','verify') or
+                      (node=='finance' and bool(record.get('calculation_ids'))) or
+                      (node=='research' and bool(record.get('claims'))))
+                if safe:
+                    record.update(status='queued',current_node=None,error=None);recovered.append(run_id)
+                else:
+                    error=ErrorBody(code='RUN_INTERRUPTED',message='Run 在非幂等节点中断，未自动重试',details={'node':node},retryable=False,request_id=run_id)
+                    record.update(status='partial' if record.get('calculation_ids') else 'failed',error=error.model_dump(mode='json'));stopped.append((run_id,node,record['status'],record['error']))
+                record['updated_at']=datetime.now(timezone.utc).isoformat()
+                db.execute('UPDATE runs SET body=? WHERE id=?',(json.dumps(record,ensure_ascii=False,separators=(',',':')),run_id))
+        for run_id,node,status,error in stopped:self.append_event(run_id,'error',node or 'run',{'status':status,'error':error})
+        return recovered
+
+    def has_unfinished_runs(self):
+        with self.connect() as db:rows=db.execute('SELECT body FROM runs').fetchall()
+        return any(json.loads(row[0]).get('status') in ('queued','running') for row in rows)
+
+    def append_event(self,run_id,event_type,node,payload):
+        now=datetime.now(timezone.utc).isoformat()
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute('SELECT 1 FROM runs WHERE id=?',(run_id,)).fetchone() is None:return None
+            seq=db.execute('SELECT COALESCE(MAX(seq),0)+1 FROM run_events WHERE run_id=?',(run_id,)).fetchone()[0]
+            event=Event(seq=seq,run_id=run_id,type=event_type,node=node,at=now,payload=payload)
+            db.execute('INSERT INTO run_events VALUES (?,?,?)',(run_id,seq,event.model_dump_json()))
+        return event
+
+    def list_run_events(self,run_id,after_seq,limit):
+        with self.connect() as db:
+            rows=db.execute('SELECT body FROM run_events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?',(run_id,after_seq,limit+1)).fetchall()
+        items=[Event.model_validate_json(row[0]) for row in rows[:limit]]
+        return items,(items[-1].seq if items else after_seq),len(rows)>limit
+
+    def evidence_for_snapshot(self,dataset_id,version):
+        with self.connect() as db:
+            rows=db.execute('SELECT e.body FROM evidence e JOIN dataset_sources ds ON ds.source_id=e.source_id WHERE ds.dataset_id=? AND ds.version=? ORDER BY e.id',(dataset_id,version)).fetchall()
+        return [Evidence.model_validate_json(row[0]) for row in rows]
+
+    def resume_run(self,id,expected_status,dataset_version,assumptions):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT body FROM runs WHERE id=?',(id,)).fetchone()
+            if row is None:return None
+            record=json.loads(row[0])
+            if record['status']!=expected_status:raise ValueError('run status changed')
+            if record['dataset_version']!=dataset_version:raise FactScopeError('run snapshot changed')
+            request=record['request'];request['assumptions']=assumptions
+            record.update(status='queued',current_node=None,missing_requirements=[],error=None,request=request)
+            record['updated_at']=datetime.now(timezone.utc).isoformat()
+            db.execute('UPDATE runs SET body=? WHERE id=?',(json.dumps(record,ensure_ascii=False,separators=(',',':')),id))
+        return record
     def get_source_by_sha256(self,sha256):
         with self.connect() as db:row=db.execute('SELECT body FROM sources WHERE sha256=?',(sha256,)).fetchone()
         return Source.model_validate_json(row[0]) if row else None

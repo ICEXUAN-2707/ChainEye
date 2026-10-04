@@ -1,4 +1,5 @@
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Any, Protocol
 from chain_eye.domain.contracts import Calculation, Fact, ScenarioRequest, ScenarioResult
 from chain_eye.domain.extraction import DocumentPages
 from chain_eye.api.dto import RunCreate,Run
@@ -10,3 +11,37 @@ class FinancialService(Protocol):
     def compute(self,fact_snapshot:list[Fact],requested_metric_ids:list[str])->list[Calculation]:...
 class RunService(Protocol):
     def create(self,request:RunCreate,idempotency_key:str)->Run:...
+
+
+class TypedProviderError(RuntimeError):
+    code='MODEL_FAILED';retryable=False
+
+
+class ModelUnavailable(TypedProviderError):
+    code='MODEL_UNAVAILABLE';retryable=True
+
+
+class ModelRateLimited(TypedProviderError):
+    code='MODEL_RATE_LIMITED';retryable=True
+
+
+class ModelInvalidResponse(TypedProviderError):
+    code='MODEL_INVALID_RESPONSE';retryable=False
+
+
+@dataclass(frozen=True)
+class LLMResponse:
+    output:dict[str,Any]
+    provider:str
+    model:str
+    usage:dict[str,Any]
+    latency_ms:int
+    request_id:str|None
+    cost:dict[str,Any]|None
+
+
+class LLMPort(Protocol):
+    def generate(
+        self,task_name:str,prompt_version:str,messages:list[dict[str,str]],
+        response_schema:dict[str,Any],budget:dict[str,Any],
+    )->LLMResponse:...
