@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {Dataset,Event,RunCreate} from '../src/api/generated.ts';
-import {buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey} from '../src/lib/run.ts';
+import {buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey,reportExportUrl} from '../src/lib/run.ts';
 
 const dataset:Dataset={id:'dataset-1',name:'test',company:'CATL',year:2025,version:3,source_ids:[],created_at:'2026-10-04T00:00:00Z',data_basis:'reviewed_fixture'};
 
@@ -43,4 +43,9 @@ test('claims are read only from structurally valid event payloads',()=>{
 test('only queued and running states are auto-polled',()=>{
   assert.equal(isRunActive('queued'),true);assert.equal(isRunActive('running'),true);
   for(const status of ['waiting_review','completed','partial','failed','cancelled'] as const)assert.equal(isRunActive(status),false);
+});
+
+test('report export URL encodes run id and keeps correct format',()=>{
+  assert.equal(reportExportUrl('run 1/2','markdown'),'/api/v1/runs/run%201%2F2/report?format=markdown');
+  assert.equal(reportExportUrl('abc','pdf'),'/api/v1/runs/abc/report?format=pdf');
 });

@@ -39,3 +39,7 @@ export function claimsFromEvents(events:Event[]):Claim[]{
   }
   return [...claims.values()];
 }
+
+export function reportExportUrl(runId:string,format:'markdown'|'pdf'):string{
+  return `/api/v1/runs/${encodeURIComponent(runId)}/report?format=${format}`;
+}

@@ -1,11 +1,13 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import type {Assumptions,Dataset,Event,Run} from '../api/generated';
-import {api,ApiError} from '../api/client';
-import {buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey} from '../lib/run';
+import type {Assumptions,Dataset,Event,Run,Report,Claim} from '../api/generated';
+import {api,ApiError,BASE_URL} from '../api/client';
+import {buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey,reportExportUrl} from '../lib/run';
+import {fmtAmount} from '../lib/format';
 
 const runStatusLabels:Record<string,string>={queued:'排队中',running:'运行中',waiting_review:'待复核',completed:'已完成',partial:'部分完成',failed:'失败',cancelled:'已取消'};
 const eventTypeLabels:Record<string,string>={file_access:'文件访问',tool_call:'工具调用',calculation:'计算',llm_call:'模型调用',node_status:'节点状态',report_generated:'报告生成',error:'错误'};
 const claimStatusLabels:Record<string,string>={pending:'待核验',supported:'有支持',insufficient:'证据不足',rejected:'已拒绝'};
+const claimKindLabels:Record<string,string>={fact:'事实',calculation:'计算',inference:'推论',opinion:'观点',hypothesis:'假设'};
 const runStatusClass=(status:string)=>status==='completed'?'s-verified':status==='failed'||status==='cancelled'?'s-missing':status==='waiting_review'||status==='partial'?'s-needs-review':'s-extracted';
 
 function message(error:unknown):string{
@@ -22,6 +24,8 @@ export function RunPanel({dataset}:{dataset:Dataset}){
   const [events,setEvents]=useState<Event[]>([]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [report,setReport]=useState<Report|null>(null);
+  const [reportError,setReportError]=useState('');
   const [costExposure,setCostExposure]=useState('');
   const [priceShock,setPriceShock]=useState('');
   const [passThrough,setPassThrough]=useState('');
@@ -42,6 +46,16 @@ export function RunPanel({dataset}:{dataset:Dataset}){
     setRun(null);setEvents([]);setBusy(false);setError('');
     return()=>actionController.current?.abort();
   },[dataset.id,dataset.version]);
+
+  useEffect(()=>{
+    setReport(null);setReportError('');
+    if(!run?.report_ready)return;
+    const runId=run.id;const controller=new AbortController();
+    api.report(runId,controller.signal)
+      .then(rep=>{if(!controller.signal.aborted)setReport(rep);})
+      .catch(value=>{if(!controller.signal.aborted)setReportError(message(value));});
+    return()=>controller.abort();
+  },[run?.id,run?.report_ready]);
 
   const sync=useCallback(async(runId:string,signal?:AbortSignal)=>{
     let cursor=afterSeq.current;const [nextRun,firstPage]=await Promise.all([api.run(runId,signal),api.runEvents(runId,{afterSeq:cursor,limit:200,signal})]);
@@ -104,7 +118,7 @@ export function RunPanel({dataset}:{dataset:Dataset}){
 
   return <section className="panel">
     <h2>研究任务</h2>
-    <p className="hint">输入研究问题后，后端只在当前数据快照内执行白名单检索、确定性计算、受控模型调用与Claim核验。实时与回放会明确标识；R4只形成已核验Claim，尚不生成R5报告。</p>
+    <p className="hint">输入研究问题后，后端只在当前数据快照内执行白名单检索、确定性计算、受控模型调用与Claim核验，最终生成可追溯简报。实时与回放会明确标识。</p>
     <div className="run-form">
       <label>研究问题<textarea value={question} onChange={event=>setQuestion(event.target.value)} rows={3} maxLength={4000} placeholder="例如：分析 2025 年动力电池业务收入和毛利变化"/></label>
       <div className="assumption-grid">
@@ -136,6 +150,21 @@ export function RunPanel({dataset}:{dataset:Dataset}){
       </div>
       {claims.length>0&&<div className="claims"><h3>引用已校验 Claim</h3><ul>{claims.map(claim=><li key={claim.id}><span className={`badge ${claim.review_status==='supported'?'s-verified':claim.review_status==='rejected'?'s-missing':'s-needs-review'}`}>{claimStatusLabels[claim.review_status]}</span> {claim.text}<span className="muted">证据 {claim.evidence_ids.length} · 计算 {claim.calculation_ids.length} · 假设 {claim.assumption_ids.length}{claim.limitations.length?` · 限制：${claim.limitations.join('；')}`:''}</span></li>)}</ul></div>}
       {events.length>0&&<div className="events"><h3>事件时间线</h3><ol className="trace">{events.map(event=><li key={event.seq}><strong>{eventTypeLabels[event.type]??event.type}</strong>（{event.node}）<span className="muted">#{event.seq} · {event.at}</span><details><summary>查看事件详情</summary><pre>{JSON.stringify(event.payload,null,2)}</pre></details></li>)}</ol></div>}
+      {reportError&&<p role="alert" className="error">报告加载失败：{reportError}</p>}
+      {report&&<div className="report"><h3>报告 · {report.title}</h3>
+        <div className="review-actions">
+          <a className="button-link" target="_blank" rel="noreferrer" href={`${BASE_URL}${reportExportUrl(run.id,'markdown')}`}>导出 Markdown</a>
+          <a className="button-link" target="_blank" rel="noreferrer" href={`${BASE_URL}${reportExportUrl(run.id,'pdf')}`}>导出 PDF</a>
+        </div>
+        {report.claims.length>0&&<div className="table"><table><thead><tr><th>类型</th><th>结论</th><th>状态</th><th>引用</th></tr></thead><tbody>{report.claims.map((c:Claim)=><tr key={c.id}><td><span className="badge s-extracted">{claimKindLabels[c.kind]??c.kind}</span></td><td>{c.text}</td><td><span className={`badge ${c.review_status==='supported'?'s-verified':c.review_status==='rejected'?'s-missing':'s-needs-review'}`}>{claimStatusLabels[c.review_status]}</span></td><td><span className="muted">证据 {c.evidence_ids.length} · 计算 {c.calculation_ids.length} · 假设 {c.assumption_ids.length}</span></td></tr>)}</tbody></table></div>}
+        {report.limitations.length>0&&<p className="muted">限制：{report.limitations.join('；')}</p>}
+        <details><summary>报告详情（事实 {report.facts.length} · 计算 {report.calculations.length} · 假设 {report.assumptions.length} · 证据 {report.evidence.length}）</summary>
+          {report.facts.length>0&&<><h4>事实（revision）</h4><ul className="report-detail">{report.facts.map(f=><li key={f.id}>{f.metric}（rev {f.revision}）· {fmtAmount(f.value,f.unit)}</li>)}</ul></>}
+          {report.calculations.length>0&&<><h4>计算</h4><ul className="report-detail">{report.calculations.map(c=><li key={c.id}>{c.formula_id} v{c.formula_version} · {c.value} {c.unit}</li>)}</ul></>}
+          {report.assumptions.length>0&&<><h4>假设</h4><ul className="report-detail">{report.assumptions.map(a=><li key={a.id}>{Object.entries(a.values).filter(([k])=>['cost_exposure','effective_price_shock','customer_pass_through'].includes(k)).map(([k,v])=>`${k}=${v}`).join('，')}</li>)}</ul></>}
+          {report.evidence.length>0&&<><h4>证据</h4><ul className="report-detail">{report.evidence.map(e=><li key={e.id}><a target="_blank" rel="noreferrer" href={`${BASE_URL}/api/v1/sources/${encodeURIComponent(e.source_id)}/content#page=${e.pdf_page}`}>PDF 第 {e.pdf_page} 页</a></li>)}</ul></>}
+        </details>
+      </div>}
     </div>}
   </section>;
 }
