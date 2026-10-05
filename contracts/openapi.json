@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Chain Eye API",
-    "description": "R4 persisted evidence-bound agent runs over immutable dataset snapshots. Report generation remains an R5 capability.",
-    "version": "0.3.0"
+    "description": "R5 persisted, traceable reports over immutable evidence-bound Run snapshots.",
+    "version": "0.4.0"
   },
   "paths": {
     "/health": {
@@ -99,16 +99,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -220,16 +210,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -354,16 +334,6 @@
               }
             }
           },
-          "501": {
-            "description": "not implemented in current slice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "503": {
             "description": "provider unavailable",
             "content": {
@@ -465,16 +435,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -636,16 +596,6 @@
               }
             }
           },
-          "501": {
-            "description": "not implemented in current slice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "503": {
             "description": "provider unavailable",
             "content": {
@@ -747,16 +697,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -876,16 +816,6 @@
               }
             }
           },
-          "501": {
-            "description": "not implemented in current slice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "503": {
             "description": "provider unavailable",
             "content": {
@@ -977,16 +907,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1117,16 +1037,6 @@
               }
             }
           },
-          "501": {
-            "description": "not implemented in current slice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "503": {
             "description": "provider unavailable",
             "content": {
@@ -1228,16 +1138,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1357,16 +1257,6 @@
               }
             }
           },
-          "501": {
-            "description": "not implemented in current slice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "503": {
             "description": "provider unavailable",
             "content": {
@@ -1458,16 +1348,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1575,16 +1455,6 @@
               }
             }
           },
-          "501": {
-            "description": "not implemented in current slice",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
           "503": {
             "description": "provider unavailable",
             "content": {
@@ -1676,16 +1546,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1792,16 +1652,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {
@@ -1928,16 +1778,6 @@
           },
           "500": {
             "description": "internal failure",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponse"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "not implemented in current slice",
             "content": {
               "application/json": {
                 "schema": {

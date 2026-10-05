@@ -1,8 +1,8 @@
 from dataclasses import dataclass
 from typing import Any, Protocol
-from chain_eye.domain.contracts import Calculation, Fact, ScenarioRequest, ScenarioResult
+from chain_eye.domain.contracts import Calculation, Claim, Fact, ScenarioRequest, ScenarioResult
 from chain_eye.domain.extraction import DocumentPages
-from chain_eye.api.dto import RunCreate,Run
+from chain_eye.api.dto import Report,RunCreate,Run
 class Parser(Protocol):
     def parse(self,source_id:str,content:bytes)->DocumentPages:...
 class ScenarioService(Protocol):
@@ -11,6 +11,8 @@ class FinancialService(Protocol):
     def compute(self,fact_snapshot:list[Fact],requested_metric_ids:list[str])->list[Calculation]:...
 class RunService(Protocol):
     def create(self,request:RunCreate,idempotency_key:str)->Run:...
+class ReportService(Protocol):
+    def build(self,run_snapshot:dict[str,Any],claims:list[Claim],calculations:list[Calculation])->Report:...
 
 
 class TypedProviderError(RuntimeError):

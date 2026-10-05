@@ -47,9 +47,9 @@ try:
   assert run_body['status']=='partial';assert run_body['error']['code']=='MODEL_UNAVAILABLE';assert run_body['report_ready'] is False
   first_events=client.get(f'/api/v1/runs/{run_id}/events',params={'limit':3});first_events.raise_for_status();first_page=first_events.json();assert first_page['has_more']
   remaining=client.get(f'/api/v1/runs/{run_id}/events',params={'after_seq':first_page['next_after_seq'],'limit':200});remaining.raise_for_status();second_page=remaining.json();assert second_page['items'][0]['seq']==first_page['next_after_seq']+1
-  report=client.get(f'/api/v1/runs/{run_id}/report');assert report.status_code==501
- result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'fixture_facts':30,'evidence_page':25,'pdf':True,'upload':True,'upload_version':3,'extracted_candidates':15,'correction_revision':2,'reviewed_dataset_version':4,'duplicate_source_reused':True,'scenario':True,'scenario_calculations':9,'run':True,'run_status_without_key':'partial','run_error_without_key':'MODEL_UNAVAILABLE','run_event_cursor':True,'report_boundary_501':True,'visual_browser_check':'separate check; see R1-browser-check.json'}
- (root/'validation/R4-http-smoke.json').write_text(json.dumps(result,indent=2),encoding='utf-8',newline='\n');print(json.dumps(result))
+  report=client.get(f'/api/v1/runs/{run_id}/report');assert report.status_code==409;assert report.json()['error']['code']=='REPORT_NOT_READY'
+ result={'status':'passed','real_http':True,'frontend_html':True,'cors':True,'fixture_facts':30,'evidence_page':25,'pdf':True,'upload':True,'upload_version':3,'extracted_candidates':15,'correction_revision':2,'reviewed_dataset_version':4,'duplicate_source_reused':True,'scenario':True,'scenario_calculations':9,'run':True,'run_status_without_key':'partial','run_error_without_key':'MODEL_UNAVAILABLE','run_event_cursor':True,'partial_report_error':'REPORT_NOT_READY','visual_browser_check':'separate check; see R1-browser-check.json'}
+ (root/'validation/R5-http-smoke.json').write_text(json.dumps(result,indent=2),encoding='utf-8',newline='\n');print(json.dumps(result))
 finally:
  for p in procs:
   if p.poll() is None:

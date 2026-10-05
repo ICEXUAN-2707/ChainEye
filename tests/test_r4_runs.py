@@ -74,7 +74,7 @@ class R4Runs(unittest.TestCase):
 
     def test_live_run_persists_supported_claims_calculations_and_events(self):
         _,run,record=self.execute()
-        self.assertEqual(run.status,'completed');self.assertFalse(run.report_ready);self.assertEqual(run.current_node,'verify')
+        self.assertEqual(run.status,'completed');self.assertTrue(run.report_ready);self.assertEqual(run.current_node,'report')
         self.assertEqual(len(record['calculation_ids']),6);self.assertEqual(record['claims'][0]['review_status'],'pending')
         events,after,more=self.repo.list_run_events(run.id,0,200)
         self.assertEqual([event.seq for event in events],list(range(1,len(events)+1)));self.assertEqual(after,len(events));self.assertFalse(more)
@@ -241,7 +241,7 @@ class R4HTTPIntegration(unittest.TestCase):
                 first=client.get(f'/api/v1/runs/{run_id}/events?limit=3').json();self.assertEqual(len(first['items']),3);self.assertTrue(first['has_more'])
                 second=client.get(f"/api/v1/runs/{run_id}/events?after_seq={first['next_after_seq']}&limit=200").json()
                 self.assertEqual(second['items'][0]['seq'],first['next_after_seq']+1)
-                report=client.get(f'/api/v1/runs/{run_id}/report');self.assertEqual(report.status_code,501);self.assertEqual(report.json()['error']['code'],'NOT_IMPLEMENTED')
+                report=client.get(f'/api/v1/runs/{run_id}/report');self.assertEqual(report.status_code,200);self.assertEqual(report.json()['run_id'],run_id)
 
 
 class DeepSeekBoundary(unittest.TestCase):
