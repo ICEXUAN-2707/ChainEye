@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import time
 import unittest
@@ -253,6 +254,12 @@ class DeepSeekBoundary(unittest.TestCase):
     def generate(adapter):
         return adapter.generate('claims','r4-test',[{'role':'user','content':'{}'}],{'type':'object'},{'timeout_seconds':1,'max_output_tokens':100})
 
+    def test_default_model_is_flash_and_environment_can_override_it(self):
+        with patch.dict(os.environ,{},clear=True):
+            self.assertEqual(DeepSeekAdapter(api_key='test-only').model,'deepseek-flash')
+        with patch.dict(os.environ,{'DEEPSEEK_MODEL':'configured-model'},clear=True):
+            self.assertEqual(DeepSeekAdapter(api_key='test-only').model,'configured-model')
+
     def test_timeout_maps_to_retryable_unavailable(self):
         adapter=DeepSeekAdapter(api_key='test-only')
         with patch('chain_eye.adapters.deepseek.httpx.post',side_effect=TimeoutError()):
@@ -272,17 +279,17 @@ class DeepSeekBoundary(unittest.TestCase):
 
     def test_empty_claim_list_is_rejected(self):
         adapter=DeepSeekAdapter(api_key='test-only')
-        response=self.Response(200,{'id':'req-1','model':'deepseek-chat','choices':[{'message':{'content':'{"claims":[]}'}}]})
+        response=self.Response(200,{'id':'req-1','model':'deepseek-flash','choices':[{'message':{'content':'{"claims":[]}'}}]})
         with patch('chain_eye.adapters.deepseek.httpx.post',return_value=response):
             with self.assertRaises(ModelInvalidResponse):self.generate(adapter)
 
     def test_response_records_provider_metadata(self):
         adapter=DeepSeekAdapter(api_key='test-only')
         claim={'id':'c','kind':'fact','text':'x','evidence_ids':[],'calculation_ids':[],'assumption_ids':[],'counter_evidence_ids':[],'limitations':[],'review_status':'pending'}
-        response=self.Response(200,{'id':'req-1','model':'deepseek-chat','usage':{'total_tokens':3},'choices':[{'message':{'content':json.dumps({'claims':[claim]})}}]})
+        response=self.Response(200,{'id':'req-1','model':'deepseek-flash','usage':{'total_tokens':3},'choices':[{'message':{'content':json.dumps({'claims':[claim]})}}]})
         with patch('chain_eye.adapters.deepseek.httpx.post',return_value=response) as posted:result=self.generate(adapter)
         self.assertEqual(result.request_id,'req-1');self.assertGreaterEqual(result.latency_ms,0);self.assertEqual(result.usage['total_tokens'],3)
-        payload=posted.call_args.kwargs['json'];self.assertEqual(payload['max_tokens'],100)
+        payload=posted.call_args.kwargs['json'];self.assertEqual(payload['max_tokens'],100);self.assertEqual(payload['model'],'deepseek-flash')
         self.assertIn('JSON Schema',payload['messages'][0]['content'])
 
     def test_api_key_is_not_in_public_configuration(self):

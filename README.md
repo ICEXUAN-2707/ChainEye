@@ -18,6 +18,8 @@ source .venv/bin/activate
 python -m pip install -r backend/requirements.lock
 python tools/start_backend.py
 ```
+`tools/start_backend.py`会显式加载仓库根目录的`.env`，但不会覆盖启动进程中已经设置的同名环境变量。复制`.env.example`为`.env`后填写`DEEPSEEK_API_KEY`即可；默认模型为`deepseek-flash`，密钥和`.env`不得提交。
+
 另一个终端：
 ```bash
 cd frontend

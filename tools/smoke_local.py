@@ -9,6 +9,7 @@ def get(url,origin=None):
 try:
  npm='npm.cmd' if os.name=='nt' else 'npm'
  backend_env=os.environ.copy();backend_env.pop('DEEPSEEK_API_KEY',None)
+ backend_env['PYTHON_DOTENV_DISABLED']='1'
  for args,cwd,env in [([sys.executable,'tools/start_backend.py'],root,backend_env),([npm,'run','dev'],root/'frontend',None)]:
   procs.append(subprocess.Popen(args,cwd=cwd,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,start_new_session=True))
  for i in range(100):
