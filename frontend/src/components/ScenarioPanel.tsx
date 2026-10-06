@@ -1,7 +1,7 @@
 import {useEffect,useMemo,useRef,useState} from 'react';
 import type {Dataset,Fact,ScenarioRequest,ScenarioResult,Calculation} from '../api/generated';
 import {api,ApiError} from '../api/client';
-import {names,fmtAmount,fmtPp} from '../lib/format';
+import {names,fmtAmount,fmtPp,fmtFormula,fmtAssumptionKey,fmtFactRevisions} from '../lib/format';
 import {pairBaseline,scenarioKey} from '../lib/scenario';
 
 const MODEL_VERSION='static-gross-profit-v1';
@@ -148,17 +148,17 @@ export function ScenarioPanel({dataset,facts}:{dataset:Dataset;facts:Fact[]}){
         <h3>计算溯源（{result.calculation_ids.length} 条）</h3>
         <ul className="calc-list">{result.calculation_ids.map(id=>{
           const c=calcs[id];
-          return <li key={id}>{c?<div><strong>{c.formula_id}</strong>（v{c.formula_version}）→ {fmtCalc(c)}<span className="muted">输入 {c.input_fact_ids.length} 个事实 · 假设 {Object.entries(c.assumption_snapshot).map(([k,v])=>`${k}=${v}`).join('，')}</span></div>:<button className="inline" onClick={()=>void openCalc(id)}>查看计算 {id.slice(0,8)}…</button>}</li>;
+          return <li key={id}>{c?<div><strong>{fmtFormula(c.formula_id)}</strong> · <span className="mono">{c.formula_id} v{c.formula_version}</span> → {fmtCalc(c)}<span className="muted mono">Calculation {c.id}</span><span className="muted mono">输入：{fmtFactRevisions(c.input_fact_ids,c.input_revisions)}</span>{Object.entries(c.assumption_snapshot).length?<span className="muted">参数 {Object.entries(c.assumption_snapshot).map(([k,v])=>`${fmtAssumptionKey(k)} ${v}`).join('，')}</span>:null}</div>:<button className="inline" onClick={()=>void openCalc(id)}>查看计算 <span className="mono">{id}</span></button>}</li>;
         })}</ul>
       </div>}
       {grid&&<div className="scenario-result">
         <h3>敏感性网格（27 组合，s×x×k）</h3>
-        <p className="muted">模型 {MODEL_VERSION} · 横轴：价格冲击 x（%）· 纵轴：成本暴露 s（%）· 单元格：情景毛利率 / Δ毛利率（pp）</p>
+        <p className="muted">模型 {MODEL_VERSION} · 横轴：价格冲击 x（%）· 纵轴：成本暴露 s（%）· 单元格：情景毛利率 / 毛利率变化（pp）</p>
         {gridProgress&&<p role="status" className="muted">已完成 {gridProgress.completed}/{gridProgress.total} 个格点{gridProgress.completed<gridProgress.total?'；中断时保留已完成结果。':''}</p>}
         {GRID_K.map(kv=><div className="sensitivity" key={kv}>
           <h4>固定客户传导 k = {fmtAmount(kv,'ratio')}</h4>
           <div className="table"><table>
-            <thead><tr><th>s \ x</th>{GRID_X.map(xv=><th key={xv}>{fmtAmount(xv,'ratio')}</th>)}</tr></thead>
+            <thead><tr><th>成本暴露 s \ 价格冲击 x</th>{GRID_X.map(xv=><th key={xv}>{fmtAmount(xv,'ratio')}</th>)}</tr></thead>
             <tbody>{GRID_S.map(sv=><tr key={sv}><th>{fmtAmount(sv,'ratio')}</th>{GRID_X.map(xv=>{
               const cell=grid.find(g=>g.s===sv&&g.x===xv&&g.k===kv);
               return <td key={xv}>{cell?<>{fmtAmount(cell.r.outputs.gross_margin,'ratio')}<span className="muted">{fmtPp(cell.r.outputs.delta_gross_margin_pp)}</span></>:busy?'计算中…':'未完成'}</td>;
