@@ -3,7 +3,7 @@ import type {Assumptions,AssumptionRecord,Calculation,Claim,Dataset,Event,Eviden
 import {api,BASE_URL,errorMessage} from '../api/client';
 import {buildResumeRequest,buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey} from '../lib/run';
 import {calculationApiUrl,evidenceApiUrl,loadCurrentReport,reportExportUrl,reportRequestRunId,resolveClaimReferences,resolveEvidenceReferences,shouldAcceptReportResponse,sourcePageUrl,type ResolvedReference} from '../lib/report';
-import {fmtAmount,fmtPp,metrics,periodOf} from '../lib/format';
+import {fmtAmount,fmtPp,metrics,periodOf,fmtFormula,fmtNode,fmtAssumptionKey,fmtBasis,shortId} from '../lib/format';
 
 const runStatusLabels:Record<string,string>={queued:'排队中',running:'运行中',waiting_review:'待复核',completed:'已完成',partial:'部分完成',failed:'失败',cancelled:'已取消'};
 const eventTypeLabels:Record<string,string>={file_access:'文件访问',tool_call:'工具调用',calculation:'计算',llm_call:'模型调用',node_status:'节点状态',report_generated:'报告生成',error:'错误'};
@@ -20,9 +20,9 @@ function calculationValue(calculation:Calculation):string{
 function EvidenceReferences({title,references}:{title:string;references:ResolvedReference<Evidence>[]}):React.ReactNode{
   if(references.length===0)return null;
   return <div className="claim-reference"><strong>{title}</strong><ul>{references.map(reference=><li key={reference.id}>
-    {!reference.value?<span className="error"><span className="mono">{reference.id}</span>（报告引用缺失）</span>:<>
-      <a target="_blank" rel="noreferrer" href={`${BASE_URL}${evidenceApiUrl(reference.id)}`}>Evidence <span className="mono">{reference.id}</span></a>
-      {reference.value.locator_kind==='pdf'&&<> · <a target="_blank" rel="noreferrer" href={`${BASE_URL}${sourcePageUrl(reference.value.source_id,reference.value.pdf_page)}`}>PDF{reference.value.pdf_page?` 第 ${reference.value.pdf_page} 页`:''}</a></>}
+    {!reference.value?<span className="error">证据缺失</span>:<>
+      <a target="_blank" rel="noreferrer" href={`${BASE_URL}${evidenceApiUrl(reference.id)}`}>查看证据</a>
+      {reference.value.locator_kind==='pdf'&&<> · <a target="_blank" rel="noreferrer" href={`${BASE_URL}${sourcePageUrl(reference.value.source_id,reference.value.pdf_page)}`}>原文 PDF{reference.value.pdf_page?` 第 ${reference.value.pdf_page} 页`:''}</a></>}
       <span className="muted">{reference.value.excerpt}</span>
     </>}
   </li>)}</ul></div>;
@@ -31,9 +31,9 @@ function EvidenceReferences({title,references}:{title:string;references:Resolved
 function CalculationReferences({references}:{references:ResolvedReference<Calculation>[]}):React.ReactNode{
   if(references.length===0)return null;
   return <div className="claim-reference"><strong>计算</strong><ul>{references.map(reference=><li key={reference.id}>
-    {!reference.value?<span className="error"><span className="mono">{reference.id}</span>（报告引用缺失）</span>:<>
-      <a target="_blank" rel="noreferrer" href={`${BASE_URL}${calculationApiUrl(reference.id)}`}>Calculation <span className="mono">{reference.id}</span></a>
-      <span className="muted">{reference.value.formula_id} v{reference.value.formula_version} · {calculationValue(reference.value)}</span>
+    {!reference.value?<span className="error">计算缺失</span>:<>
+      <a target="_blank" rel="noreferrer" href={`${BASE_URL}${calculationApiUrl(reference.id)}`}>查看计算</a>
+      <span className="muted">{fmtFormula(reference.value.formula_id)} · {calculationValue(reference.value)}</span>
     </>}
   </li>)}</ul></div>;
 }
@@ -41,9 +41,8 @@ function CalculationReferences({references}:{references:ResolvedReference<Calcul
 function AssumptionReferences({references}:{references:ResolvedReference<AssumptionRecord>[]}):React.ReactNode{
   if(references.length===0)return null;
   return <div className="claim-reference"><strong>假设</strong><ul>{references.map(reference=><li key={reference.id}>
-    {!reference.value?<span className="error"><span className="mono">{reference.id}</span>（报告引用缺失）</span>:<>
-      <span className="mono">{reference.id}</span>
-      <span className="muted">{Object.entries(reference.value.values).filter(([key])=>['cost_exposure','effective_price_shock','customer_pass_through'].includes(key)).map(([key,value])=>`${key}=${value}`).join('，')} · {reference.value.values.basis}</span>
+    {!reference.value?<span className="error">假设缺失</span>:<>
+      <span className="muted">{Object.entries(reference.value.values).filter(([key])=>['cost_exposure','effective_price_shock','customer_pass_through'].includes(key)).map(([key,value])=>`${fmtAssumptionKey(key)} ${value}`).join('，')} · {fmtBasis(reference.value.values.basis)}</span>
     </>}
   </li>)}</ul></div>;
 }
@@ -184,8 +183,8 @@ export function RunPanel({dataset}:{dataset:Dataset}){
     </div>
     {error&&<p role="alert" className="error">{error}</p>}
     {run&&<div className="run-status">
-      <p className="run-head">Run <span className="mono">{run.id}</span> · <span className={`badge ${runStatusClass(run.status)}`}>{runStatusLabels[run.status]}</span> · 模式 {run.mode==='live'?'实时':'回放'}{run.stale?' · 已过期':''}</p>
-      {run.current_node&&<p className="muted">当前节点：{run.current_node}</p>}
+      <p className="run-head"><span className={`badge ${runStatusClass(run.status)}`}>{runStatusLabels[run.status]}</span> · 模式 {run.mode==='live'?'实时':'回放'}{run.stale?' · 已过期':''}</p>
+      {run.current_node&&<p className="muted">当前节点：{fmtNode(run.current_node)}</p>}
       {run.missing_requirements.length>0&&<p className="error">缺少前置：{run.missing_requirements.join('；')}</p>}
       {run.error&&<p className="error">运行错误：{run.error.message}（{run.error.code}）</p>}
       {needsAssumptions&&<div className="resume-box">
@@ -214,9 +213,9 @@ export function RunPanel({dataset}:{dataset:Dataset}){
         {report.claims.length>0&&<div className="table"><table><thead><tr><th>类型</th><th>结论</th><th>状态</th><th>引用与限制</th></tr></thead><tbody>{report.claims.map((claim:Claim)=><tr key={claim.id}><td><span className="badge s-extracted">{claimKindLabels[claim.kind]??claim.kind}</span></td><td>{claim.text}</td><td><span className={`badge ${claim.review_status==='supported'?'s-verified':claim.review_status==='rejected'?'s-missing':'s-needs-review'}`}>{claimStatusLabels[claim.review_status]}</span></td><td><ClaimReferences report={report} claim={claim}/></td></tr>)}</tbody></table></div>}
         {report.limitations.length>0&&<p className="muted">限制：{report.limitations.join('；')}</p>}
         <details><summary>报告详情（事实 {report.facts.length} · 计算 {report.calculations.length} · 假设 {report.assumptions.length} · 证据 {report.evidence.length}）</summary>
-          {report.facts.length>0&&<><h4>事实（revision）</h4><ul className="report-detail">{report.facts.map(f=><li key={f.id}><span className="mono">{f.id}</span> · {metrics[f.metric]??f.metric}（rev {f.revision??'—'}）· {periodOf(f)} · {fmtAmount(f.value,f.unit)}<EvidenceReferences title="事实证据" references={resolveEvidenceReferences(report,f.evidence_ids)}/></li>)}</ul></>}
-          {report.calculations.length>0&&<><h4>计算</h4><ul className="report-detail">{report.calculations.map(calculation=><li key={calculation.id}><a target="_blank" rel="noreferrer" href={`${BASE_URL}${calculationApiUrl(calculation.id)}`}><span className="mono">{calculation.id}</span></a> · {calculation.formula_id} v{calculation.formula_version} · {calculationValue(calculation)}<span className="muted">输入：{calculation.input_fact_ids.map(id=>`${id}@rev${calculation.input_revisions[id]}`).join('；')||'无'}{Object.keys(calculation.assumption_snapshot).length?` · 参数：${Object.entries(calculation.assumption_snapshot).map(([key,value])=>`${key}=${value}`).join('，')}`:''}</span></li>)}</ul></>}
-          {report.assumptions.length>0&&<><h4>假设</h4><ul className="report-detail">{report.assumptions.map(assumption=><li key={assumption.id}><span className="mono">{assumption.id}</span> · {Object.entries(assumption.values).filter(([key])=>['cost_exposure','effective_price_shock','customer_pass_through'].includes(key)).map(([key,value])=>`${key}=${value}`).join('，')} · {assumption.values.basis}</li>)}</ul></>}
+          {report.facts.length>0&&<><h4>事实</h4><ul className="report-detail">{report.facts.map(f=><li key={f.id}>{metrics[f.metric]??f.metric} · {periodOf(f)} · {fmtAmount(f.value,f.unit)}<EvidenceReferences title="事实证据" references={resolveEvidenceReferences(report,f.evidence_ids)}/></li>)}</ul></>}
+          {report.calculations.length>0&&<><h4>计算</h4><ul className="report-detail">{report.calculations.map(calculation=><li key={calculation.id}><a target="_blank" rel="noreferrer" href={`${BASE_URL}${calculationApiUrl(calculation.id)}`}>查看计算</a> · {fmtFormula(calculation.formula_id)} · {calculationValue(calculation)}{Object.keys(calculation.assumption_snapshot).length?<span className="muted">参数：{Object.entries(calculation.assumption_snapshot).map(([key,value])=>`${fmtAssumptionKey(key)} ${value}`).join('，')}</span>:null}</li>)}</ul></>}
+          {report.assumptions.length>0&&<><h4>假设</h4><ul className="report-detail">{report.assumptions.map(assumption=><li key={assumption.id}>{Object.entries(assumption.values).filter(([key])=>['cost_exposure','effective_price_shock','customer_pass_through'].includes(key)).map(([key,value])=>`${fmtAssumptionKey(key)} ${value}`).join('，')} · {fmtBasis(assumption.values.basis)}</li>)}</ul></>}
           {report.evidence.length>0&&<><h4>证据</h4><EvidenceReferences title="报告引用证据" references={resolveEvidenceReferences(report,report.evidence.map(evidence=>evidence.id))}/></>}
         </details>
       </div>}
