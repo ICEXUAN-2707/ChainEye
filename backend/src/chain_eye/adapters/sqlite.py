@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime,timedelta,timezone
 from uuid import uuid4
 from chain_eye.domain.datasets import Dataset,DatasetCreate,Source,SourceAttachment,DatasetSourceLimitError
-from chain_eye.api.dto import Event,Run,RunCreate
+from chain_eye.api.dto import Event,Report,Run,RunCreate
 from chain_eye.domain.contracts import Fact,Evidence,ScenarioResult,ErrorBody
 from chain_eye.domain.review import EvidenceScopeError,FactNotFoundError,FactRevisionConflictError,FactScopeError
 from chain_eye.domain.scenario import (
@@ -43,7 +43,7 @@ class SQLiteRepository:
         with self.connect() as db: rows=db.execute('SELECT body FROM datasets ORDER BY id LIMIT ? OFFSET ?',(limit+1,offset)).fetchall()
         return [Dataset.model_validate_json(row[0]) for row in rows[:limit]],offset+limit if len(rows)>limit else None
     def get(self,table,id):
-        if table not in ('sources','evidence','calculations','runs'):raise ValueError('unknown table')
+        if table not in ('sources','evidence','calculations','runs','scenarios'):raise ValueError('unknown table')
         with self.connect() as db:row=db.execute(f'SELECT body FROM {table} WHERE id=?',(id,)).fetchone()
         return json.loads(row[0]) if row else None
 
@@ -60,7 +60,7 @@ class SQLiteRepository:
             id=record['id'],dataset_id=record['dataset_id'],dataset_version=record['dataset_version'],
             status=record['status'],mode=record['mode'],current_node=record.get('current_node'),
             missing_requirements=record.get('missing_requirements',[]),stale=stale,error=error,
-            report_ready=False,
+            report_ready=bool(record.get('report_ready')),
         )
 
     def get_run_record(self,id):
@@ -97,6 +97,7 @@ class SQLiteRepository:
                 'error':None,'request':request_body,'owner_id':'local','created_at':now.isoformat(),
                 'updated_at':now.isoformat(),'model_config':model_config,'prompt_version':prompt_version,
                 'claims':[],'calculation_ids':[],'scenario_ids':[],'model_calls':0,'node_retries':{},
+                'report_ready':False,
             }
             db.execute('INSERT INTO runs VALUES (?,?,?,?)',(run_id,request.dataset_id,request.dataset_version,json.dumps(record,ensure_ascii=False,separators=(',',':'))))
             db.execute('INSERT INTO idempotency VALUES (?,?,?,?,?)',(scope,idempotency_key,body_hash,json.dumps({'run_id':run_id}),expires_at.isoformat()))
@@ -132,7 +133,7 @@ class SQLiteRepository:
                 record=json.loads(body)
                 if record['status']!='running':continue
                 node=record.get('current_node')
-                safe=(node in (None,'plan','extract','validate','scenario','verify') or
+                safe=(node in (None,'plan','extract','validate','scenario','verify','report') or
                       (node=='finance' and bool(record.get('calculation_ids'))) or
                       (node=='research' and bool(record.get('claims'))))
                 if safe:
@@ -164,6 +165,31 @@ class SQLiteRepository:
             rows=db.execute('SELECT body FROM run_events WHERE run_id=? AND seq>? ORDER BY seq LIMIT ?',(run_id,after_seq,limit+1)).fetchall()
         items=[Event.model_validate_json(row[0]) for row in rows[:limit]]
         return items,(items[-1].seq if items else after_seq),len(rows)>limit
+
+    def get_report(self,run_id):
+        with self.connect() as db:row=db.execute('SELECT body FROM reports WHERE run_id=?',(run_id,)).fetchone()
+        return Report.model_validate_json(row[0]) if row else None
+
+    def save_report(self,report,event_payload,complete_run=False):
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            existing=db.execute('SELECT body FROM reports WHERE run_id=?',(report.run_id,)).fetchone()
+            if existing:return Report.model_validate_json(existing[0]),False
+            row=db.execute('SELECT body FROM runs WHERE id=?',(report.run_id,)).fetchone()
+            if row is None:raise ValueError('report run does not exist')
+            record=json.loads(row[0])
+            expected_status='running' if complete_run else 'completed'
+            if record['status']!=expected_status:raise ValueError('report run has an invalid status')
+            if complete_run and record.get('current_node')!='report':raise ValueError('run is not at report node')
+            body=report.model_dump_json()
+            db.execute('INSERT INTO reports VALUES (?,?)',(report.run_id,body))
+            record.update(status='completed' if complete_run else record['status'],current_node='report',report_ready=True)
+            record['updated_at']=datetime.now(timezone.utc).isoformat()
+            db.execute('UPDATE runs SET body=? WHERE id=?',(json.dumps(record,ensure_ascii=False,separators=(',',':')),report.run_id))
+            seq=db.execute('SELECT COALESCE(MAX(seq),0)+1 FROM run_events WHERE run_id=?',(report.run_id,)).fetchone()[0]
+            event=Event(seq=seq,run_id=report.run_id,type='report_generated',node='report',at=record['updated_at'],payload=event_payload)
+            db.execute('INSERT INTO run_events VALUES (?,?,?)',(report.run_id,seq,event.model_dump_json()))
+        return report,True
 
     def evidence_for_snapshot(self,dataset_id,version):
         with self.connect() as db:

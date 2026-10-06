@@ -1,4 +1,4 @@
-"""R4 persisted run orchestration with one SQLite-claiming worker."""
+"""Persisted run orchestration with one SQLite-claiming worker."""
 import json
 import re
 import threading
@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from chain_eye.api.dto import ResumeRequest,RunCreate
 from chain_eye.application.errors import AppError
 from chain_eye.application.financials import FinancialService
+from chain_eye.application.reports import ReportService
 from chain_eye.application.run_tools import RunTools
 from chain_eye.application.scenarios import ScenarioExecutionService
 from chain_eye.domain.contracts import Claim,ErrorBody
@@ -68,6 +69,7 @@ class RunExecutionService:
     def __init__(self,repository,llm,clock=time.monotonic):
         self.repository=repository;self.llm=llm;self.clock=clock
         self.financials=FinancialService(repository);self.scenarios=ScenarioExecutionService(repository)
+        self.reports=ReportService(repository)
 
     def create(self,request:RunCreate,idempotency_key:str):
         return self.create_with_status(request,idempotency_key)[0]
@@ -133,7 +135,7 @@ class RunExecutionService:
         run_id=record['id'];request=RunCreate.model_validate(record['request'])
         tools=RunTools(self.repository,self.financials,self.scenarios,run_id,record['dataset_id'],record['dataset_version'])
 
-        record=self._node(record,'plan',details={'plan':['extract','validate','finance','research','scenario_if_requested','verify'],'prompt_version':PROMPT_VERSION})
+        record=self._node(record,'plan',details={'plan':['extract','validate','finance','research','scenario_if_requested','verify','report'],'prompt_version':PROMPT_VERSION})
         self._budget(started,record)
 
         record=self._node(record,'extract')
@@ -209,6 +211,9 @@ class RunExecutionService:
                         {'role':'system','content':SYSTEM_PROMPT},
                         {'role':'user','content':json.dumps({'question':request.question,'context':context},ensure_ascii=False,separators=(',',':'))},
                     ]
+                    # The current provider contract intentionally exposes only the
+                    # R4/R5 ``claims`` task; add a task schema and adapter support
+                    # before reusing this research node for another task name.
                     generation=self.llm.generate(
                         'claims',PROMPT_VERSION,messages,CLAIM_RESPONSE_SCHEMA,
                         {'timeout_seconds':60,'max_output_tokens':4000},
@@ -287,25 +292,29 @@ class RunExecutionService:
             'insufficient':sum(item.review_status=='insufficient' for item in checked),
             'rejected':sum(item.review_status=='rejected' for item in checked),
         })
-        self.repository.update_run(run_id,status='completed',current_node='verify',missing_requirements=[],error=None,claims=final_claims)
+        self.repository.update_run(run_id,status='running',current_node='report',missing_requirements=[],error=None,claims=final_claims,report_ready=False)
         self.repository.append_event(run_id,'node_status','verify',{'status':'completed','claims':final_claims,'report_ready':False})
+        self.reports.complete(run_id)
 
     def _execute_replay(self,record):
         source=self.repository.get_run_record(record['request']['replay_run_id'])
         if source is None:raise AppError('NOT_FOUND','回放源 Run 不存在',404)
         self.repository.append_event(record['id'],'node_status','plan',{'status':'completed','mode':'replay','source_run_id':source['id']})
+        finalizing=source['status']=='completed'
         self.repository.update_run(
-            record['id'],status=source['status'],current_node='verify',claims=source.get('claims',[]),
+            record['id'],status='running' if finalizing else source['status'],current_node='report' if finalizing else 'verify',claims=source.get('claims',[]),
             calculation_ids=source.get('calculation_ids',[]),scenario_ids=source.get('scenario_ids',[]),
             assumption_ids=source.get('assumption_ids',[]),missing_requirements=[],error=source.get('error'),model_calls=0,
+            report_ready=False,
         )
         self.repository.append_event(record['id'],'node_status','verify',{'status':source['status'],'mode':'replay','claims':source.get('claims',[]),'report_ready':False})
+        if finalizing:self.reports.complete(record['id'])
 
     def _finish_error(self,run_id,record,code,message,retryable,details=None):
         current=self.repository.get_run_record(run_id) or record
         status='partial' if current.get('calculation_ids') else 'failed'
         error=ErrorBody(code=code,message=message[:1000],details=details or {},retryable=retryable,request_id=run_id).model_dump(mode='json')
-        self.repository.update_run(run_id,status=status,error=error)
+        self.repository.update_run(run_id,status=status,error=error,report_ready=False)
         self.repository.append_event(run_id,'error',current.get('current_node') or 'run',{'status':status,'error':error})
 
 
