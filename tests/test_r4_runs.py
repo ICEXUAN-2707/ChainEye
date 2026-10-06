@@ -14,7 +14,7 @@ from chain_eye.api.app import create_app
 from chain_eye.api.dto import RunCreate
 from chain_eye.application.errors import AppError
 from chain_eye.application.run_tools import RunTools,TOOL_NAMES,ToolFailure
-from chain_eye.application.runs import RunExecutionService
+from chain_eye.application.runs import PROMPT_VERSION,RunExecutionService
 from chain_eye.ports.services import LLMResponse
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -23,19 +23,20 @@ ROOT=Path(__file__).resolve().parents[1]
 class FakeLLM:
     provider='fake';model='fake-r4'
     public_config={'provider':'fake','model':'fake-r4','response_format':'json_object'}
-    def __init__(self,failures=None,unsupported=False,empty=False,counter_evidence_id=None,evidence_id=None,text_override=None):
+    def __init__(self,failures=None,unsupported=False,empty=False,counter_evidence_id=None,evidence_id=None,text_override=None,claim_kind='calculation',use_calculation=True):
         self.failures=list(failures or []);self.unsupported=unsupported;self.empty=empty
-        self.counter_evidence_id=counter_evidence_id;self.evidence_id=evidence_id;self.text_override=text_override;self.calls=[]
+        self.counter_evidence_id=counter_evidence_id;self.evidence_id=evidence_id;self.text_override=text_override
+        self.claim_kind=claim_kind;self.use_calculation=use_calculation;self.calls=[];self.prompt_versions=[];self.system_prompts=[]
     def generate(self,task_name,prompt_version,messages,response_schema,budget):
         payload=json.loads(messages[-1]['content']);question=payload['question'];context=payload['context']
-        self.calls.append((question,context))
+        self.calls.append((question,context));self.prompt_versions.append(prompt_version);self.system_prompts.append(messages[0]['content'])
         if self.failures:raise self.failures.pop(0)
         if self.empty:return LLMResponse({'claims':[]},self.provider,self.model,{'total_tokens':1},1,'fake-empty',None)
         evidence=[self.evidence_id] if self.evidence_id else context['allowed_evidence_ids'][:1]
-        calculations=context['allowed_calculation_ids'][:1]
-        calculation=next(item for item in context['calculations'] if item and item['id']==calculations[0])
+        calculations=context['allowed_calculation_ids'][:1] if self.use_calculation else []
+        calculation=next((item for item in context['calculations'] if item and calculations and item['id']==calculations[0]),None)
         claim={
-            'id':f'claim-{len(self.calls)}','kind':'calculation','text':self.text_override or f"计算结果为 {calculation['value']}。",
+            'id':f'claim-{len(self.calls)}','kind':self.claim_kind,'text':self.text_override or f"计算结果为 {calculation['value']}。",
             'evidence_ids':[] if self.unsupported else evidence,
             'calculation_ids':[] if self.unsupported else calculations,'assumption_ids':[],
             'counter_evidence_ids':[self.counter_evidence_id] if self.counter_evidence_id else [],
@@ -73,9 +74,11 @@ class R4Runs(unittest.TestCase):
         return service,self.repo.get_run(run.id),self.repo.get_run_record(run.id)
 
     def test_live_run_persists_supported_claims_calculations_and_events(self):
-        _,run,record=self.execute()
+        llm=FakeLLM();_,run,record=self.execute(llm)
         self.assertEqual(run.status,'completed');self.assertTrue(run.report_ready);self.assertEqual(run.current_node,'report')
         self.assertEqual(len(record['calculation_ids']),6);self.assertEqual(record['claims'][0]['review_status'],'pending')
+        self.assertEqual(record['prompt_version'],PROMPT_VERSION);self.assertEqual(llm.prompt_versions,[PROMPT_VERSION])
+        self.assertIn('verified Fact.value',llm.system_prompts[0])
         events,after,more=self.repo.list_run_events(run.id,0,200)
         self.assertEqual([event.seq for event in events],list(range(1,len(events)+1)));self.assertEqual(after,len(events));self.assertFalse(more)
         tools={event.payload['tool_name'] for event in events if event.type=='tool_call'}
@@ -88,6 +91,23 @@ class R4Runs(unittest.TestCase):
 
     def test_numeric_claim_not_supported_by_its_references_is_downgraded(self):
         _,run,record=self.execute(FakeLLM(text_override='计算结果为 999999999999。'),key='unsupported-number')
+        self.assertEqual(run.status,'completed');self.assertEqual(record['claims'][0]['review_status'],'insufficient')
+
+    def test_fact_claim_accepts_normalized_value_and_year_from_cited_fact(self):
+        llm=FakeLLM(
+            evidence_id='e-2025-power_battery-revenue',claim_kind='fact',use_calculation=False,
+            text_override='2025 年动力电池收入为 316506369000 CNY。',
+        )
+        _,run,record=self.execute(llm,key='normalized-fact-value')
+        self.assertEqual(run.status,'completed');self.assertEqual(record['claims'][0]['review_status'],'pending')
+        self.assertEqual(record['claims'][0]['calculation_ids'],[])
+
+    def test_fact_claim_cannot_borrow_normalized_value_from_uncited_fact(self):
+        llm=FakeLLM(
+            evidence_id='e-2025-power_battery-revenue',claim_kind='fact',use_calculation=False,
+            text_override='2025 年动力电池营业成本为 241064397000 CNY。',
+        )
+        _,run,record=self.execute(llm,key='uncited-fact-value')
         self.assertEqual(run.status,'completed');self.assertEqual(record['claims'][0]['review_status'],'insufficient')
 
     def test_document_injection_is_delimited_as_untrusted_data(self):
