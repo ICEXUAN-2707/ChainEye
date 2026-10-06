@@ -57,5 +57,7 @@ export function fmtAssumptionKey(key:string):string{return assumptionKeyLabels[k
 export const basisLabels:Record<string,string>={user_assumption:'用户假设',research_assumption:'研究假设'};
 export function fmtBasis(basis:string):string{return basisLabels[basis]??basis;}
 
-// 缩短长 ID（UUID）为前 8 位，避免界面出现冗长技术标识。
-export function shortId(id:string):string{return id.length>12?`${id.slice(0,8)}…`:id;}
+// 审计链必须保留精确 Fact ID 与 revision，不能只显示数量或截断 ID。
+export function fmtFactRevisions(ids:string[],revisions:Record<string,number>):string{
+  return ids.map(id=>`${id}@rev${revisions[id]??'?'}`).join('；')||'无';
+}

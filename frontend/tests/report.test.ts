@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import type {AssumptionRecord,Calculation,Claim,Evidence,Report,Run} from '../src/api/generated.ts';
 import {ApiError,errorMessage} from '../src/api/client.ts';
+import {fmtFactRevisions} from '../src/lib/format.ts';
 import {calculationApiUrl,evidenceApiUrl,loadCurrentReport,reportExportUrl,reportRequestRunId,resolveClaimReferences,shouldAcceptReportResponse,sourcePageUrl} from '../src/lib/report.ts';
 
 const evidence:Evidence={id:'e 1/2',source_id:'source 1/2',locator_kind:'pdf',pdf_page:12,excerpt:'收入证据',sha256:'0'.repeat(64)};
@@ -62,4 +63,10 @@ test('report loader exposes an error and allows the same current run to retry',a
 test('structured API errors remain visible with code and request id',()=>{
   const error=new ApiError(409,{error:{code:'REPORT_NOT_READY',message:'报告尚未就绪',details:{},retryable:true,request_id:'request-1'}});
   assert.equal(errorMessage(error),'报告尚未就绪（REPORT_NOT_READY，request-1）');
+});
+
+test('calculation input labels preserve full fact identity and revision',()=>{
+  assert.equal(fmtFactRevisions(calculation.input_fact_ids,calculation.input_revisions),'fact-1@rev2');
+  assert.equal(fmtFactRevisions(['fact-a','fact-b'],{'fact-a':3}),'fact-a@rev3；fact-b@rev?');
+  assert.equal(fmtFactRevisions([],{}),'无');
 });
