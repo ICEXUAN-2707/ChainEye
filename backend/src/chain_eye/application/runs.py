@@ -211,6 +211,9 @@ class RunExecutionService:
                         {'role':'system','content':SYSTEM_PROMPT},
                         {'role':'user','content':json.dumps({'question':request.question,'context':context},ensure_ascii=False,separators=(',',':'))},
                     ]
+                    # The current provider contract intentionally exposes only the
+                    # R4/R5 ``claims`` task; add a task schema and adapter support
+                    # before reusing this research node for another task name.
                     generation=self.llm.generate(
                         'claims',PROMPT_VERSION,messages,CLAIM_RESPONSE_SCHEMA,
                         {'timeout_seconds':60,'max_output_tokens':4000},
