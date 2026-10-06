@@ -3,11 +3,18 @@ import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceA
 export const BASE_URL='http://127.0.0.1:8000';
 
 export class ApiError extends Error {
-  constructor(public status:number,public payload:ErrorResponse){super(payload.error.message);}
+  readonly status:number;
+  readonly payload:ErrorResponse;
+  constructor(status:number,payload:ErrorResponse){super(payload.error.message);this.status=status;this.payload=payload;}
   get code(){return this.payload.error.code;}
   get requestId(){return this.payload.error.request_id;}
   get details(){return this.payload.error.details;}
   get retryable(){return this.payload.error.retryable;}
+}
+
+export function errorMessage(error:unknown):string{
+  if(error instanceof ApiError)return `${error.message}（${error.code}，${error.requestId}）`;
+  return error instanceof Error?error.message:'操作失败';
 }
 
 function toError(status:number,body:unknown):ApiError{
