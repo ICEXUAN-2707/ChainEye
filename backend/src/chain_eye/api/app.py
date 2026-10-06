@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import uuid4
 from typing import Annotated, Literal
 from fastapi import FastAPI, Header, Query, UploadFile, File, Form, Request
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import JSONResponse, FileResponse, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -19,23 +19,26 @@ from chain_eye.application.extraction import ExtractionService
 from chain_eye.application.fact_review import FactReviewService
 from chain_eye.application.scenarios import ScenarioExecutionService
 from chain_eye.application.runs import RunExecutionService,RunWorker
+from chain_eye.application.reports import ReportService
+from chain_eye.reporting.markdown import render_markdown
+from chain_eye.reporting.pdf import render_pdf
 
 ROOT=Path(__file__).resolve().parents[4]
-RESPONSES={n:{'model':ErrorResponse,'description':t} for n,t in [(403,'local access only'),(404,'not found'),(409,'conflict'),(422,'invalid input'),(429,'budget exceeded'),(500,'internal failure'),(501,'not implemented in current slice'),(503,'provider unavailable')]}
+RESPONSES={n:{'model':ErrorResponse,'description':t} for n,t in [(403,'local access only'),(404,'not found'),(409,'conflict'),(422,'invalid input'),(429,'budget exceeded'),(500,'internal failure'),(503,'provider unavailable')]}
 
 def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
     if os.getenv('CHAIN_EYE_MODE','local')!='local': raise RuntimeError('R1 supports local mode only; public authentication not implemented')
     repo=SQLiteRepository(db_path or os.getenv('CHAIN_EYE_DB',str(ROOT/'.runtime/chain_eye.sqlite')),ROOT,upload_dir)
     if seed:repo.seed()
     uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo)
-    runs=RunExecutionService(repo,llm or DeepSeekAdapter());worker=RunWorker(repo,runs)
+    runs=RunExecutionService(repo,llm or DeepSeekAdapter());reports=ReportService(repo);worker=RunWorker(repo,runs)
     @asynccontextmanager
     async def lifespan(_app):
         if repo.has_unfinished_runs():worker.submit()
         try:yield
         finally:worker.stop()
-    app=FastAPI(title='Chain Eye API',version='0.3.0',description='R4 persisted evidence-bound agent runs over immutable dataset snapshots. Report generation remains an R5 capability.',lifespan=lifespan)
-    app.state.repository=repo;app.state.run_service=runs;app.state.run_worker=worker
+    app=FastAPI(title='Chain Eye API',version='0.4.0',description='R5 persisted, traceable reports over immutable evidence-bound Run snapshots.',lifespan=lifespan)
+    app.state.repository=repo;app.state.run_service=runs;app.state.report_service=reports;app.state.run_worker=worker
     app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_methods=['GET','POST','PATCH'],allow_headers=['Content-Type','Idempotency-Key'],allow_credentials=False)
     def error(code,message,status,request_id,details=None,retryable=False):
         return JSONResponse(status_code=status,content=ErrorResponse(error=ErrorBody(code=code,message=message,details=details or {},retryable=retryable,request_id=request_id)).model_dump(mode='json'))
@@ -65,9 +68,8 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
         v=repo.get(table,id)
         if not v:raise AppError('NOT_FOUND','资源不存在',404)
         return v
-    def pending(round):raise AppError('NOT_IMPLEMENTED',f'该能力计划在{round}实现，当前交付块未执行该操作',501)
     @app.get('/health',operation_id='health')
-    def health():return {'status':'ok','stage':'R4','mode':'local','schema_version':'0.3.0','data_basis':'reviewed_fixture_and_user_upload'}
+    def health():return {'status':'ok','stage':'R5','mode':'local','schema_version':'0.4.0','data_basis':'reviewed_fixture_and_user_upload'}
     @app.post('/api/v1/datasets',response_model=Dataset,status_code=201,responses=RESPONSES,operation_id='createDataset')
     def create_dataset(body:DatasetCreate):return repo.create(body)
     @app.get('/api/v1/datasets',response_model=DatasetCollection,responses=RESPONSES,operation_id='listDatasets')
@@ -132,5 +134,17 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
         if sha256_file(p)!=s['sha256']:raise AppError('SOURCE_HASH_MISMATCH','原件与保存的证据哈希不一致',409)
         return FileResponse(p,media_type=s['media_type'],filename=s['filename'],content_disposition_type='inline')
     @app.get('/api/v1/runs/{id}/report',response_model=Report,responses={**RESPONSES,200:{'content':{'application/json':{'schema':{'$ref':'#/components/schemas/Report'}},'text/markdown':{'schema':{'type':'string','format':'binary'}},'application/pdf':{'schema':{'type':'string','format':'binary'}}}}},operation_id='getReport')
-    def report(id:str,format:Literal['json','markdown','pdf']='json'):required('runs',id);pending('R5')
+    def report(id:str,format:Literal['json','markdown','pdf']='json'):
+        value=reports.get_or_build(id)
+        if format=='json':return value
+        filename=f'chain-eye-{id}.{"md" if format=="markdown" else "pdf"}'
+        if format=='markdown':
+            return Response(
+                render_markdown(value),media_type='text/markdown',
+                headers={'Content-Disposition':f'attachment; filename="{filename}"'},
+            )
+        return Response(
+            render_pdf(value),media_type='application/pdf',
+            headers={'Content-Disposition':f'attachment; filename="{filename}"'},
+        )
     return app

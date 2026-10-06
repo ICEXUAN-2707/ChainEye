@@ -1,5 +1,5 @@
 // GENERATED from contracts/openapi.json. Do not edit.
-export const CONTRACT_VERSION = "0.3.0" as const;
+export const CONTRACT_VERSION = "0.4.0" as const;
 export type AssumptionRecord = { "id": string; "values": Assumptions };
 export type Assumptions = { "cost_exposure": string; "effective_price_shock": string; "customer_pass_through": string; "basis": "user_assumption" | "research_assumption"; "acknowledged": true; "evidence_ids"?: Array<string> };
 export type Body_uploadSource = { "file": string; "url"?: string | null; "published_date"?: string | null };
