@@ -1,4 +1,4 @@
-import type {Claim,Dataset,Event,Run,RunCreate} from '../api/generated';
+import type {Assumptions,Claim,Dataset,Event,ResumeRequest,Run,RunCreate} from '../api/generated';
 import {stableKey} from './scenario.ts';
 
 export function buildRunCreate(dataset:Dataset,question:string,segment:RunCreate['segment'],mode:RunCreate['mode'],replayRunId:string):RunCreate{
@@ -18,6 +18,10 @@ function canonical(value:unknown):string{
 export function runIdempotencyKey(body:RunCreate):string{return stableKey(canonical(body));}
 
 export function isRunActive(status:Run['status']):boolean{return status==='queued'||status==='running';}
+
+export function buildResumeRequest(run:Run,assumptions?:Assumptions):ResumeRequest {
+  return {expected_run_status:'waiting_review',dataset_version:run.dataset_version,...(assumptions?{assumptions}:{})};
+}
 
 export function mergeEvents(current:Event[],incoming:Event[]):Event[]{
   const bySeq=new Map(current.map(event=>[event.seq,event]));

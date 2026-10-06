@@ -1,13 +1,20 @@
-import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation, RunCreate, Run, EventCollection, ResumeRequest} from './generated';
+import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation, RunCreate, Run, EventCollection, ResumeRequest, Report} from './generated';
 
 export const BASE_URL='http://127.0.0.1:8000';
 
 export class ApiError extends Error {
-  constructor(public status:number,public payload:ErrorResponse){super(payload.error.message);}
+  readonly status:number;
+  readonly payload:ErrorResponse;
+  constructor(status:number,payload:ErrorResponse){super(payload.error.message);this.status=status;this.payload=payload;}
   get code(){return this.payload.error.code;}
   get requestId(){return this.payload.error.request_id;}
   get details(){return this.payload.error.details;}
   get retryable(){return this.payload.error.retryable;}
+}
+
+export function errorMessage(error:unknown):string{
+  if(error instanceof ApiError)return `${error.message}（${error.code}，${error.requestId}）`;
+  return error instanceof Error?error.message:'操作失败';
 }
 
 function toError(status:number,body:unknown):ApiError{
@@ -56,6 +63,7 @@ export const api={
     return request<EventCollection>(`/api/v1/runs/${encodeURIComponent(id)}/events${q?`?${q}`:''}`,{signal:opts?.signal});
   },
   resumeRun:(id:string,body:ResumeRequest,signal?:AbortSignal)=>request<Run>(`/api/v1/runs/${encodeURIComponent(id)}/resume`,{...json('POST',body),signal}),
+  report:(id:string,signal?:AbortSignal)=>request<Report>(`/api/v1/runs/${encodeURIComponent(id)}/report?format=json`,{signal}),
   evidence:(id:string,signal?:AbortSignal)=>request<Evidence>(`/api/v1/evidence/${encodeURIComponent(id)}`,{signal}),
   source:(id:string,signal?:AbortSignal)=>request<Source>(`/api/v1/sources/${encodeURIComponent(id)}`,{signal}),
 };

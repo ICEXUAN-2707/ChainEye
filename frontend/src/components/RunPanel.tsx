@@ -1,16 +1,64 @@
 import {useCallback,useEffect,useMemo,useRef,useState} from 'react';
-import type {Assumptions,Dataset,Event,Run} from '../api/generated';
-import {api,ApiError} from '../api/client';
-import {buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey} from '../lib/run';
+import type {Assumptions,AssumptionRecord,Calculation,Claim,Dataset,Event,Evidence,Report,Run} from '../api/generated';
+import {api,BASE_URL,errorMessage} from '../api/client';
+import {buildResumeRequest,buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey} from '../lib/run';
+import {calculationApiUrl,evidenceApiUrl,loadCurrentReport,reportExportUrl,reportRequestRunId,resolveClaimReferences,resolveEvidenceReferences,shouldAcceptReportResponse,sourcePageUrl,type ResolvedReference} from '../lib/report';
+import {fmtAmount,fmtPp,metrics,periodOf} from '../lib/format';
 
 const runStatusLabels:Record<string,string>={queued:'排队中',running:'运行中',waiting_review:'待复核',completed:'已完成',partial:'部分完成',failed:'失败',cancelled:'已取消'};
 const eventTypeLabels:Record<string,string>={file_access:'文件访问',tool_call:'工具调用',calculation:'计算',llm_call:'模型调用',node_status:'节点状态',report_generated:'报告生成',error:'错误'};
 const claimStatusLabels:Record<string,string>={pending:'待核验',supported:'有支持',insufficient:'证据不足',rejected:'已拒绝'};
+const claimKindLabels:Record<string,string>={fact:'事实',calculation:'计算',inference:'推论',opinion:'观点',hypothesis:'假设'};
 const runStatusClass=(status:string)=>status==='completed'?'s-verified':status==='failed'||status==='cancelled'?'s-missing':status==='waiting_review'||status==='partial'?'s-needs-review':'s-extracted';
 
-function message(error:unknown):string{
-  if(error instanceof ApiError)return `${error.message}（${error.code}，${error.requestId}）`;
-  return error instanceof Error?error.message:'操作失败';
+function calculationValue(calculation:Calculation):string{
+  if(calculation.value===null)return `不可计算：${calculation.reason??'原因未提供'}`;
+  if(calculation.unit==='pp')return fmtPp(calculation.value);
+  return fmtAmount(calculation.value,calculation.unit);
+}
+
+function EvidenceReferences({title,references}:{title:string;references:ResolvedReference<Evidence>[]}):React.ReactNode{
+  if(references.length===0)return null;
+  return <div className="claim-reference"><strong>{title}</strong><ul>{references.map(reference=><li key={reference.id}>
+    {!reference.value?<span className="error"><span className="mono">{reference.id}</span>（报告引用缺失）</span>:<>
+      <a target="_blank" rel="noreferrer" href={`${BASE_URL}${evidenceApiUrl(reference.id)}`}>Evidence <span className="mono">{reference.id}</span></a>
+      {reference.value.locator_kind==='pdf'&&<> · <a target="_blank" rel="noreferrer" href={`${BASE_URL}${sourcePageUrl(reference.value.source_id,reference.value.pdf_page)}`}>PDF{reference.value.pdf_page?` 第 ${reference.value.pdf_page} 页`:''}</a></>}
+      <span className="muted">{reference.value.excerpt}</span>
+    </>}
+  </li>)}</ul></div>;
+}
+
+function CalculationReferences({references}:{references:ResolvedReference<Calculation>[]}):React.ReactNode{
+  if(references.length===0)return null;
+  return <div className="claim-reference"><strong>计算</strong><ul>{references.map(reference=><li key={reference.id}>
+    {!reference.value?<span className="error"><span className="mono">{reference.id}</span>（报告引用缺失）</span>:<>
+      <a target="_blank" rel="noreferrer" href={`${BASE_URL}${calculationApiUrl(reference.id)}`}>Calculation <span className="mono">{reference.id}</span></a>
+      <span className="muted">{reference.value.formula_id} v{reference.value.formula_version} · {calculationValue(reference.value)}</span>
+    </>}
+  </li>)}</ul></div>;
+}
+
+function AssumptionReferences({references}:{references:ResolvedReference<AssumptionRecord>[]}):React.ReactNode{
+  if(references.length===0)return null;
+  return <div className="claim-reference"><strong>假设</strong><ul>{references.map(reference=><li key={reference.id}>
+    {!reference.value?<span className="error"><span className="mono">{reference.id}</span>（报告引用缺失）</span>:<>
+      <span className="mono">{reference.id}</span>
+      <span className="muted">{Object.entries(reference.value.values).filter(([key])=>['cost_exposure','effective_price_shock','customer_pass_through'].includes(key)).map(([key,value])=>`${key}=${value}`).join('，')} · {reference.value.values.basis}</span>
+    </>}
+  </li>)}</ul></div>;
+}
+
+function ClaimReferences({report,claim}:{report:Report;claim:Claim}):React.ReactNode{
+  const references=resolveClaimReferences(report,claim);
+  const total=references.evidence.length+references.counterEvidence.length+references.calculations.length+references.assumptions.length;
+  return <details className="claim-trace"><summary>支持证据 {references.evidence.length} · 反证 {references.counterEvidence.length} · 计算 {references.calculations.length} · 假设 {references.assumptions.length}</summary>
+    {total===0&&<p className="muted">该结论没有引用对象。</p>}
+    <EvidenceReferences title="支持证据" references={references.evidence}/>
+    <EvidenceReferences title="反证" references={references.counterEvidence}/>
+    <CalculationReferences references={references.calculations}/>
+    <AssumptionReferences references={references.assumptions}/>
+    {claim.limitations.length>0&&<p className="muted">限制：{claim.limitations.join('；')}</p>}
+  </details>;
 }
 
 export function RunPanel({dataset}:{dataset:Dataset}){
@@ -22,6 +70,10 @@ export function RunPanel({dataset}:{dataset:Dataset}){
   const [events,setEvents]=useState<Event[]>([]);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
+  const [report,setReport]=useState<Report|null>(null);
+  const [reportError,setReportError]=useState('');
+  const [reportBusy,setReportBusy]=useState(false);
+  const [reportReload,setReportReload]=useState(0);
   const [costExposure,setCostExposure]=useState('');
   const [priceShock,setPriceShock]=useState('');
   const [passThrough,setPassThrough]=useState('');
@@ -39,9 +91,22 @@ export function RunPanel({dataset}:{dataset:Dataset}){
 
   useEffect(()=>{
     actionController.current?.abort();afterSeq.current=0;currentRunId.current='';
-    setRun(null);setEvents([]);setBusy(false);setError('');
+    setRun(null);setEvents([]);setBusy(false);setError('');setReport(null);setReportError('');setReportBusy(false);setReportReload(0);
     return()=>actionController.current?.abort();
   },[dataset.id,dataset.version]);
+
+  useEffect(()=>{
+    setReport(null);setReportError('');setReportBusy(false);
+    const runId=reportRequestRunId(run);if(!runId||currentRunId.current!==runId)return;
+    const controller=new AbortController();setReportBusy(true);
+    loadCurrentReport(run,controller.signal,()=>currentRunId.current,api.report)
+      .then(result=>{
+        if(result.status==='loaded')setReport(result.report);
+        if(result.status==='failed')setReportError(errorMessage(result.error));
+      })
+      .finally(()=>{if(shouldAcceptReportResponse(runId,currentRunId.current,controller.signal.aborted))setReportBusy(false);});
+    return()=>controller.abort();
+  },[run?.id,run?.report_ready,reportReload]);
 
   const sync=useCallback(async(runId:string,signal?:AbortSignal)=>{
     let cursor=afterSeq.current;const [nextRun,firstPage]=await Promise.all([api.run(runId,signal),api.runEvents(runId,{afterSeq:cursor,limit:200,signal})]);
@@ -61,7 +126,7 @@ export function RunPanel({dataset}:{dataset:Dataset}){
     const poll=async()=>{
       controller=new AbortController();
       try{await sync(runId,controller.signal);}
-      catch(value){if(!controller.signal.aborted)setError(message(value));}
+      catch(value){if(!controller.signal.aborted)setError(errorMessage(value));}
       if(!stopped)timer=window.setTimeout(()=>void poll(),750);
     };
     void poll();
@@ -76,7 +141,7 @@ export function RunPanel({dataset}:{dataset:Dataset}){
       const created=await api.createRun(body,runIdempotencyKey(body),controller.signal);
       if(controller.signal.aborted)return;
       afterSeq.current=0;currentRunId.current=created.id;setEvents([]);setRun(created);
-    }catch(value){if(!controller.signal.aborted)setError(message(value));}
+    }catch(value){if(!controller.signal.aborted)setError(errorMessage(value));}
     finally{if(!controller.signal.aborted)setBusy(false);}
   };
 
@@ -84,8 +149,11 @@ export function RunPanel({dataset}:{dataset:Dataset}){
     if(!run)return;
     actionController.current?.abort();const controller=new AbortController();actionController.current=controller;
     currentRunId.current=run.id;setBusy(true);setError('');
-    try{await sync(run.id,controller.signal);}
-    catch(value){if(!controller.signal.aborted)setError(message(value));}
+    try{
+      await sync(run.id,controller.signal);
+      if(!controller.signal.aborted&&run.report_ready&&!report)setReportReload(value=>value+1);
+    }
+    catch(value){if(!controller.signal.aborted)setError(errorMessage(value));}
     finally{if(!controller.signal.aborted)setBusy(false);}
   };
 
@@ -96,15 +164,15 @@ export function RunPanel({dataset}:{dataset:Dataset}){
     actionController.current?.abort();const controller=new AbortController();actionController.current=controller;
     setBusy(true);setError('');
     try{
-      const resumed=await api.resumeRun(run.id,{expected_run_status:'waiting_review',dataset_version:run.dataset_version,...(assumptions?{assumptions}:{})},controller.signal);
+      const resumed=await api.resumeRun(run.id,buildResumeRequest(run,assumptions),controller.signal);
       if(!controller.signal.aborted)setRun(resumed);
-    }catch(value){if(!controller.signal.aborted)setError(message(value));}
+    }catch(value){if(!controller.signal.aborted)setError(errorMessage(value));}
     finally{if(!controller.signal.aborted)setBusy(false);}
   };
 
   return <section className="panel">
     <h2>研究任务</h2>
-    <p className="hint">输入研究问题后，后端只在当前数据快照内执行白名单检索、确定性计算、受控模型调用与Claim核验。实时与回放会明确标识；R4只形成已核验Claim，尚不生成R5报告。</p>
+    <p className="hint">输入研究问题后，后端只在当前数据快照内执行白名单检索、确定性计算、受控模型调用与Claim核验，最终生成可追溯简报。实时与回放会明确标识。</p>
     <div className="run-form">
       <label>研究问题<textarea value={question} onChange={event=>setQuestion(event.target.value)} rows={3} maxLength={4000} placeholder="例如：分析 2025 年动力电池业务收入和毛利变化"/></label>
       <div className="assumption-grid">
@@ -136,6 +204,22 @@ export function RunPanel({dataset}:{dataset:Dataset}){
       </div>
       {claims.length>0&&<div className="claims"><h3>引用已校验 Claim</h3><ul>{claims.map(claim=><li key={claim.id}><span className={`badge ${claim.review_status==='supported'?'s-verified':claim.review_status==='rejected'?'s-missing':'s-needs-review'}`}>{claimStatusLabels[claim.review_status]}</span> {claim.text}<span className="muted">证据 {claim.evidence_ids.length} · 计算 {claim.calculation_ids.length} · 假设 {claim.assumption_ids.length}{claim.limitations.length?` · 限制：${claim.limitations.join('；')}`:''}</span></li>)}</ul></div>}
       {events.length>0&&<div className="events"><h3>事件时间线</h3><ol className="trace">{events.map(event=><li key={event.seq}><strong>{eventTypeLabels[event.type]??event.type}</strong>（{event.node}）<span className="muted">#{event.seq} · {event.at}</span><details><summary>查看事件详情</summary><pre>{JSON.stringify(event.payload,null,2)}</pre></details></li>)}</ol></div>}
+      {reportBusy&&<p className="muted">正在加载报告…</p>}
+      {reportError&&<div className="report-error"><p role="alert" className="error">报告加载失败：{reportError}</p><button onClick={()=>setReportReload(value=>value+1)} disabled={reportBusy}>重试加载报告</button></div>}
+      {report&&<div className="report"><h3>报告 · {report.title}</h3>
+        <div className="review-actions">
+          <a className="button-link" target="_blank" rel="noreferrer" href={`${BASE_URL}${reportExportUrl(run.id,'markdown')}`}>导出 Markdown</a>
+          <a className="button-link" target="_blank" rel="noreferrer" href={`${BASE_URL}${reportExportUrl(run.id,'pdf')}`}>导出 PDF</a>
+        </div>
+        {report.claims.length>0&&<div className="table"><table><thead><tr><th>类型</th><th>结论</th><th>状态</th><th>引用与限制</th></tr></thead><tbody>{report.claims.map((claim:Claim)=><tr key={claim.id}><td><span className="badge s-extracted">{claimKindLabels[claim.kind]??claim.kind}</span></td><td>{claim.text}</td><td><span className={`badge ${claim.review_status==='supported'?'s-verified':claim.review_status==='rejected'?'s-missing':'s-needs-review'}`}>{claimStatusLabels[claim.review_status]}</span></td><td><ClaimReferences report={report} claim={claim}/></td></tr>)}</tbody></table></div>}
+        {report.limitations.length>0&&<p className="muted">限制：{report.limitations.join('；')}</p>}
+        <details><summary>报告详情（事实 {report.facts.length} · 计算 {report.calculations.length} · 假设 {report.assumptions.length} · 证据 {report.evidence.length}）</summary>
+          {report.facts.length>0&&<><h4>事实（revision）</h4><ul className="report-detail">{report.facts.map(f=><li key={f.id}><span className="mono">{f.id}</span> · {metrics[f.metric]??f.metric}（rev {f.revision??'—'}）· {periodOf(f)} · {fmtAmount(f.value,f.unit)}<EvidenceReferences title="事实证据" references={resolveEvidenceReferences(report,f.evidence_ids)}/></li>)}</ul></>}
+          {report.calculations.length>0&&<><h4>计算</h4><ul className="report-detail">{report.calculations.map(calculation=><li key={calculation.id}><a target="_blank" rel="noreferrer" href={`${BASE_URL}${calculationApiUrl(calculation.id)}`}><span className="mono">{calculation.id}</span></a> · {calculation.formula_id} v{calculation.formula_version} · {calculationValue(calculation)}<span className="muted">输入：{calculation.input_fact_ids.map(id=>`${id}@rev${calculation.input_revisions[id]}`).join('；')||'无'}{Object.keys(calculation.assumption_snapshot).length?` · 参数：${Object.entries(calculation.assumption_snapshot).map(([key,value])=>`${key}=${value}`).join('，')}`:''}</span></li>)}</ul></>}
+          {report.assumptions.length>0&&<><h4>假设</h4><ul className="report-detail">{report.assumptions.map(assumption=><li key={assumption.id}><span className="mono">{assumption.id}</span> · {Object.entries(assumption.values).filter(([key])=>['cost_exposure','effective_price_shock','customer_pass_through'].includes(key)).map(([key,value])=>`${key}=${value}`).join('，')} · {assumption.values.basis}</li>)}</ul></>}
+          {report.evidence.length>0&&<><h4>证据</h4><EvidenceReferences title="报告引用证据" references={resolveEvidenceReferences(report,report.evidence.map(evidence=>evidence.id))}/></>}
+        </details>
+      </div>}
     </div>}
   </section>;
 }

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import type {Dataset,Event,RunCreate} from '../src/api/generated.ts';
-import {buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey} from '../src/lib/run.ts';
+import type {Assumptions,Dataset,Event,Run,RunCreate} from '../src/api/generated.ts';
+import {buildResumeRequest,buildRunCreate,claimsFromEvents,isRunActive,mergeEvents,runIdempotencyKey} from '../src/lib/run.ts';
 
 const dataset:Dataset={id:'dataset-1',name:'test',company:'CATL',year:2025,version:3,source_ids:[],created_at:'2026-10-04T00:00:00Z',data_basis:'reviewed_fixture'};
 
@@ -43,4 +43,11 @@ test('claims are read only from structurally valid event payloads',()=>{
 test('only queued and running states are auto-polled',()=>{
   assert.equal(isRunActive('queued'),true);assert.equal(isRunActive('running'),true);
   for(const status of ['waiting_review','completed','partial','failed','cancelled'] as const)assert.equal(isRunActive(status),false);
+});
+
+test('scenario resume keeps the snapshot identity and complete assumptions',()=>{
+  const run:Run={id:'run-1',dataset_id:'dataset-1',dataset_version:3,status:'waiting_review',mode:'live',current_node:'scenario',missing_requirements:['scenario_assumptions'],stale:false,error:null,report_ready:false};
+  const assumptions:Assumptions={cost_exposure:'0.1',effective_price_shock:'-0.2',customer_pass_through:'0.5',basis:'user_assumption',acknowledged:true};
+  assert.deepEqual(buildResumeRequest(run,assumptions),{expected_run_status:'waiting_review',dataset_version:3,assumptions});
+  assert.deepEqual(buildResumeRequest(run),{expected_run_status:'waiting_review',dataset_version:3});
 });
