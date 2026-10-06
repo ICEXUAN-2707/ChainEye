@@ -2,5 +2,5 @@
   "name":"chain-eye-workbench", "version":"0.2.0", "private":true, "type":"module",
   "scripts":{"dev":"vite --host 127.0.0.1", "test":"node --test --experimental-strip-types tests/review.test.ts tests/scenario.test.ts tests/run.test.ts tests/report.test.ts", "typecheck":"tsc --noEmit", "build":"npm run test && tsc --noEmit && node ../tools/clean_frontend_dist.mjs && vite build"},
   "dependencies":{"react":"19.2.0","react-dom":"19.2.0"},
-  "devDependencies":{"@types/react":"19.2.0","@types/react-dom":"19.2.0","typescript":"5.9.3","vite":"7.2.2"}
+  "devDependencies":{"@types/react":"19.2.0","@types/react-dom":"19.2.0","typescript":"5.9.3","vite":"7.3.7"}
 }
