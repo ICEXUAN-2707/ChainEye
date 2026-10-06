@@ -1,7 +1,7 @@
 # 链眼 宁德时代 R5 可追溯报告
 
 R1基线冻结日期：2026-09-30。两名开发者从同一契约开始，Codex负责后端，Claude负责前端。
-先读 `docs/06_严格交叉自检.md` 和 `validation/R1验收记录.md`，再读PRD、Spec及各自 `tasks/` 任务书。
+文档总入口为 `docs/README.md`。Phase 1 的历史PRD、Spec与交叉自检统一归档在 `docs/Phase_1/`；Phase 2 的设计资料统一放在 `docs/Phase_2/`。
 
 ## 实际完成范围
 30条财报标注再次核对原件，未发现数值错误。R0的44项检查保留，不能视为自动提取准确率。
@@ -63,14 +63,16 @@ curl -X POST http://127.0.0.1:8000/api/v1/datasets/<dataset_id>/sources \
 
 ## 协作与交付
 `tasks/Codex_后端任务.md` 与 `tasks/Claude_前端任务.md`规定边界及R2要求。两人先各自复现R1，互审一个关键流程，再进入上传与复核闭环。
-本轮是可运行基础包，最终产品交付及R2—R6门槛见 `docs/03_轮次任务与验收.md`。包内不含密钥、node_modules和本地数据库。
+本轮是可运行基础包，Phase 1 产品交付及R2—R6门槛见 `docs/Phase_1/03_轮次任务与验收.md`。包内不含密钥、node_modules和本地数据库。
 
 ## 目录
 - backend/: 分层源码、迁移及精确依赖锁。
 - frontend/: React工作台、生成客户端类型、npm锁文件。
 - contracts/: OpenAPI 3.1及JSON Schema。
 - data/: 原始财报、来源哈希、30条标注与证据、价格样本。
-- docs/、tasks/: 需求、规格、严格自检及开发任务。
+- docs/Phase_1/：第一阶段需求、规格、交叉自检与协作记录。
+- docs/Phase_2/：第二阶段已确认的PRD、Spec、任务与验收模板；尚未实现的能力不得写成现状。
+- tasks/：Phase 1 历史开发任务书。
 - tests/、tools/、validation/: 可复现检查、结果和验收记录。
 
 公开PDF保留来源，第三方设计参考没有复制项目代码。生产部署、连续价格权限和赛事最终要求仍按各轮验收核实。

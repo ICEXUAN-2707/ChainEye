@@ -1,6 +1,6 @@
 # Codex 后端开发任务
 
-项目基线 v0.2，R1骨架已实现。你负责backend、migrations、领域模型、工具、编排和契约生成。先读README、validation/R1验收记录.md、docs/06_严格交叉自检.md、PRD和Spec。禁止重新设计一套模型或将fixture读取说成自动提取。
+项目基线 v0.2，R1骨架已实现。你负责backend、migrations、领域模型、工具、编排和契约生成。先读README、validation/R1验收记录.md、`docs/Phase_1/06_严格交叉自检.md`、`docs/Phase_1/01_PRD.md`和`docs/Phase_1/02_SPEC.md`。禁止重新设计一套模型或将fixture读取说成自动提取。
 
 ## 先执行复核
 ```bash

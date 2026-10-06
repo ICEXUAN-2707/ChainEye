@@ -1,6 +1,6 @@
 # Claude 前端开发任务
 
-项目基线 v0.2，R1本机工作台已能展示核对样本。负责frontend组件、页面状态、来源查看、交互和报告展示。先读README、PRD、Spec、docs/06_严格交叉自检.md以及contracts/openapi.json。使用frontend/src/api/generated.ts，不手写第二套Fact/ScenarioResult。
+项目基线 v0.2，R1本机工作台已能展示核对样本。负责frontend组件、页面状态、来源查看、交互和报告展示。先读README、`docs/Phase_1/01_PRD.md`、`docs/Phase_1/02_SPEC.md`、`docs/Phase_1/06_严格交叉自检.md`以及contracts/openapi.json。使用frontend/src/api/generated.ts，不手写第二套Fact/ScenarioResult。
 
 ## 先复核
 ```bash
