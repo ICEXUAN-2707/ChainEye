@@ -31,7 +31,9 @@ SYSTEM_PROMPT=(
     'claim match the supplied Claim fields. Every number, including a year, must be copied '
     'exactly from a cited document excerpt or a cited Calculation.value. Never calculate, '
     'round, rescale CNY, or convert ratios to percentages. Omit a number when no cited '
-    'object contains its exact value.'
+    'object contains its exact value. Prefer citing a calculation and copying its value '
+    'verbatim into the claim text: for a calculation with value "316506369000", write '
+    '"316506369000" (not "3165.06亿" or "3165.06亿元") and list its id in calculation_ids.'
 )
 CLAIM_RESPONSE_SCHEMA={
     'type':'object','required':['claims'],'additionalProperties':False,
@@ -51,13 +53,17 @@ def _numbers(text):
     return values
 
 
-def _support_checked(claim,evidence_by_id,calculation_by_id):
+def _support_checked(claim,evidence_by_id,calculation_by_id,fact_numbers_by_evidence=None):
     claim_numbers=_numbers(claim.text)
     if not claim_numbers:return True
     artifact_numbers=[]
     for evidence_id in claim.evidence_ids:
         evidence=evidence_by_id.get(evidence_id)
         if evidence is not None:artifact_numbers.extend(_numbers(evidence.excerpt))
+        # 事实类 claim：被引用证据对应的事实规范值（元）与年度也作为合法来源，
+        # 否则模型按事实规范值（元）复述、而证据摘录是原始千元（且无年份）时会误判。
+        if fact_numbers_by_evidence is not None:
+            artifact_numbers.extend(fact_numbers_by_evidence.get(evidence_id, ()))
     for calculation_id in claim.calculation_ids:
         calculation=calculation_by_id.get(calculation_id)
         if calculation is None or calculation.get('value') is None:continue
@@ -197,7 +203,7 @@ class RunExecutionService:
         if not candidate_claims:
             context={
                 'facts':[fact.model_dump(mode='json') for fact in verified_segment_facts],
-                'calculations':calculations,
+                'calculations':[{'id':item['id'],'formula_id':item['formula_id'],'value':item['value'],'unit':item['unit']} for item in calculations],
                 'documents':[{'id':item.id,'content':f'<document>{item.excerpt}</document>'} for item in by_id.values()],
                 'allowed_evidence_ids':sorted(by_id),'allowed_calculation_ids':computed_calculation_ids,
             }
@@ -280,9 +286,15 @@ class RunExecutionService:
             'allowed_calculation_ids':computed_calculation_ids,'allowed_assumption_ids':assumption_ids,
         })
         calculation_by_id={item['id']:item for item in (self.repository.get('calculations',item_id) for item_id in computed_calculation_ids) if item}
+        fact_numbers_by_evidence={}
+        for fact in verified_segment_facts:
+            numbers=[Decimal(fact.value)]
+            if fact.period_end:numbers.append(Decimal(fact.period_end[:4]))
+            for evidence_id in fact.evidence_ids:
+                fact_numbers_by_evidence.setdefault(evidence_id, []).extend(numbers)
         checked=[]
         for claim in validated:
-            if claim.review_status=='pending' and not _support_checked(claim,by_id,calculation_by_id):
+            if claim.review_status=='pending' and not _support_checked(claim,by_id,calculation_by_id,fact_numbers_by_evidence):
                 claim=claim.model_copy(update={'review_status':'insufficient'})
             checked.append(claim)
         final_claims=[item.model_dump(mode='json') for item in checked]
