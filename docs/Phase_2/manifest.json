@@ -1,0 +1,23 @@
+{
+  "package_version": "0.1",
+  "stage": "P2",
+  "status": "design_handoff_not_implemented",
+  "created_date": "2026-10-05",
+  "files": {
+    "README.md": "69ecc51a17862cb6f84b01306323263b51a2d3f801a94940f0a831d3bf89b6a8",
+    "docs/00_决策与阶段地图.md": "96f7b46b543c09c7cdc0999d2aabbed13604ad60d93a301912d811dd96c20ce6",
+    "docs/01_PRD.md": "63e1c57565e6b6bd3028d7632300c2e058a82bcc236150932a59a05c3124b6ca",
+    "docs/02_SPEC.md": "990e8f474416646c5a1c8c721f737402803b3889a22c7ada3452c94dfb98972e",
+    "docs/03_契约与数据协议.md": "182299d5fcf76a1bccd5e57eda8350949d4729e6b6b6d55d692f81e42aa4816b",
+    "docs/04_GitHub尽调与选型.md": "5bb254e5c7c2a7ff828639893c042486e7e453026ee54f6b3b9d4b11b5aa89ea",
+    "docs/05_验收与评测.md": "258e251b7e531694a7d2cbdcb57835c8e28c60131223ebf2d3bdeb36c52ebbac",
+    "docs/06_两人协作与Git.md": "55fd29d114b9efad8e3806783d9d06be4bcd7912b3dade57a26ae5998671fd08",
+    "tasks/Claude_启动指令.md": "2d11b32fc486c5b57594125ab5542ab4a26b197e0a6abbb0aed7ea0ca92aba76",
+    "tasks/Codex_启动指令.md": "7602edaae30e7cf205a6a3fe3f959eb6b6e5036cac25013b2eaea9ee245f5ac9",
+    "templates/ADR.md": "c19a45e75092597cf5a33e406ecd4971e7f7950e1ffa7de23e7903eb73ace675",
+    "templates/acceptance.md": "64d16939812d39ae9a878a2dd0154065fa7808861947275d879f8c86cec2075b",
+    "templates/contract-delta.md": "e08d1103ce39fd6423e4ae79dd382598581ee907c2ac4aa581826f035c0902f8",
+    "templates/current-state.md": "f9ffd1037c620bf35e1d3bf298274794cdc0ccdcbaa01fa1b7e883f799c5ff99",
+    "templates/repo-research.md": "a2566fd943f9b905323a2255aa4da2b3216045715fb1b8c349478434fa411329"
+  }
+}
