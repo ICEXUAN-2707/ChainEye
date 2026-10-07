@@ -49,6 +49,18 @@ export function DiagnosticPanel({facts}:{facts:Fact[]}){
         <option value="energy_storage">储能电池</option>
       </select></label>
     </section>
+    {(()=>{
+      const rev=byYear('revenue');
+      const r24=rev['2024']?.[0];const r25=rev['2025']?.[0];
+      const v24=r24?.value?Number(r24.value):0;const v25=r25?.value?Number(r25.value):0;
+      if(!v24&&!v25)return null;
+      const max=Math.max(v24,v25,1);
+      const barH=(v:number)=>Math.max(4,Math.round(v/max*140));
+      return <div className="bar-chart">
+        <div className="bar-col"><span className="bar-value">{r24?.value?fmtAmount(r24.value,'CNY'):'—'}</span><div className="bar bar-prev" style={{height:barH(v24)}}/><span className="bar-label">2024 收入</span></div>
+        <div className="bar-col"><span className="bar-value">{r25?.value?fmtAmount(r25.value,'CNY'):'—'}</span><div className="bar" style={{height:barH(v25)}}/><span className="bar-label">2025 收入</span></div>
+      </div>;
+    })()}
     {!reviewed.length?<p>该业务暂无已复核事实，请先在「数据复核」页完成人工复核。</p>:<>
       {renderGroup('经营指标',FLOW)}
       {renderGroup('资产负债指标',STOCK)}
