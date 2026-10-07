@@ -2,7 +2,8 @@ import {useEffect,useState} from 'react';
 import type {Dataset,Fact,Evidence,SourceAttachment} from './api/generated';
 import {api,ApiError} from './api/client';
 import {CONTRACT_VERSION} from './api/generated';
-import {names,statusLabels} from './lib/format';
+import {names,statusLabels,datasetLabel} from './lib/format';
+import {shortcutView,type WorkbenchView} from './lib/navigation';
 import {UploadPanel} from './components/UploadPanel';
 import {FactTable} from './components/FactTable';
 import {ReviewForm} from './components/ReviewForm';
@@ -20,7 +21,7 @@ function App(){
   const [facts,setFacts]=useState<Fact[]>([]);
   const [segment,setSegment]=useState('all');
   const [statusF,setStatusF]=useState('all');
-  const [view,setView]=useState<'review'|'diagnostic'|'research'|'run'>('review');
+  const [view,setView]=useState<WorkbenchView>('review');
   const [reviewing,setReviewing]=useState<Fact|null>(null);
   const [evidence,setEvidence]=useState<Evidence|null>(null);
   const [evidenceLoading,setEvidenceLoading]=useState(false);
@@ -64,6 +65,17 @@ function App(){
     return()=>c.abort();
   },[reviewing]);
 
+  useEffect(()=>{
+    const handler=(e:KeyboardEvent)=>{
+      const target=e.target;
+      const editable=target instanceof HTMLInputElement||target instanceof HTMLTextAreaElement||target instanceof HTMLSelectElement||(target instanceof HTMLElement&&target.isContentEditable);
+      const v=shortcutView(e.key,editable);
+      if(v)setView(v);
+    };
+    window.addEventListener('keydown',handler);
+    return()=>window.removeEventListener('keydown',handler);
+  },[]);
+
   const onUploaded=(a:SourceAttachment)=>{setDatasets(prev=>prev.map(d=>d.id===a.dataset.id?a.dataset:d));};
   const refreshLatest=async(factId:string|null)=>{
     if(!selected)return;
@@ -84,17 +96,17 @@ function App(){
   const d=datasets.find(x=>x.id===selected);
 
   return <main>
-    <header><div><p>链眼 · 面向产业链的可溯源投研智能体 · 契约 v{CONTRACT_VERSION}</p><h1>宁德时代研究工作台</h1></div><span>数据 · 复核 · 情景 · 研究 · 报告</span></header>
+    <header><div><p>链眼 ChainEye · 面向产业链的全链路可追溯投研智能体 · 契约 v{CONTRACT_VERSION}</p><h1>溯链智研工作台</h1></div><span>数据 · 复核 · 情景 · 研究 · 报告</span></header>
     <aside className="notice">上传年报后由后端提取候选事实，需人工对照原文复核后方可标记「已复核」。情景研究仅使用已复核基线，结果为条件情景，不构成预测或投资建议。</aside>
     <UploadPanel datasetId={selected} onUploaded={onUploaded}/>
     <nav className="tabs">
-      <button className={view==='review'?'tab active':'tab'} onClick={()=>setView('review')}>数据复核</button>
-      <button className={view==='diagnostic'?'tab active':'tab'} onClick={()=>setView('diagnostic')}>财务诊断</button>
-      <button className={view==='research'?'tab active':'tab'} onClick={()=>setView('research')}>情景研究</button>
-      <button className={view==='run'?'tab active':'tab'} onClick={()=>setView('run')}>研究任务</button>
+      <button className={view==='review'?'tab active':'tab'} onClick={()=>setView('review')}>数据复核 <kbd>1</kbd></button>
+      <button className={view==='diagnostic'?'tab active':'tab'} onClick={()=>setView('diagnostic')}>财务诊断 <kbd>2</kbd></button>
+      <button className={view==='research'?'tab active':'tab'} onClick={()=>setView('research')}>情景研究 <kbd>3</kbd></button>
+      <button className={view==='run'?'tab active':'tab'} onClick={()=>setView('run')}>研究任务 <kbd>4</kbd></button>
     </nav>
     <section className="controls">
-      <label>数据包<select value={selected} onChange={e=>setSelected(e.target.value)}>{datasets.map(x=><option key={x.id} value={x.id}>{x.name} · 版本{x.version}</option>)}</select></label>
+      <label>数据包<select value={selected} onChange={e=>setSelected(e.target.value)}>{datasets.map(x=><option key={x.id} value={x.id}>{datasetLabel(x)} · 版本{x.version}</option>)}</select></label>
       {view==='review'&&<label>业务<select value={segment} onChange={e=>setSegment(e.target.value)}>{SEGMENTS.map(s=><option key={s} value={s}>{s==='all'?'全部':names[s]}</option>)}</select></label>}
       {view==='review'&&<label>状态<select value={statusF} onChange={e=>setStatusF(e.target.value)}>{STATUSES.map(s=><option key={s} value={s}>{s==='all'?'全部':statusLabels[s]}</option>)}</select></label>}
     </section>

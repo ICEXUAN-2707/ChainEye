@@ -17,6 +17,7 @@ from chain_eye.application.reports import ReportService
 from chain_eye.application.runs import RunExecutionService
 from chain_eye.ports.services import LLMResponse
 from chain_eye.reporting.markdown import _external_link
+from chain_eye.reporting.pdf import FONT_FILE_ENV, _discover_cjk_font, render_pdf
 
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -86,6 +87,23 @@ class R5Reports(unittest.TestCase):
     def test_markdown_external_links_only_allow_http_schemes(self):
         self.assertEqual(_external_link('javascript:alert(1)'),'原文链接不可用')
         self.assertIn('https://example.com/',_external_link('https://example.com/report?q=1'))
+
+    def test_explicit_pdf_font_path_is_validated(self):
+        with patch.dict('os.environ',{FONT_FILE_ENV:str(Path(self.tmp.name)/'missing-font.ttf')}):
+            with self.assertRaisesRegex(RuntimeError,FONT_FILE_ENV):_discover_cjk_font()
+        with patch.dict('os.environ',{FONT_FILE_ENV:__file__}),patch('chain_eye.reporting.pdf.os.access',return_value=False):
+            with self.assertRaisesRegex(RuntimeError,FONT_FILE_ENV):_discover_cjk_font()
+
+    def test_pdf_embeds_and_subsets_available_cjk_font(self):
+        if _discover_cjk_font() is None:self.skipTest('no embeddable system CJK font is available')
+        report=ReportService(self.repo).get_or_build(self.execute('embedded-font-report'))
+        payload=render_pdf(report)
+        self.assertLess(len(payload),500_000)
+        with fitz.open(stream=payload,filetype='pdf') as document:
+            text=''.join(page.get_text() for page in document)
+            self.assertIn('限制与风险边界',text)
+            fonts=[font for page in document for font in page.get_fonts(full=True)]
+            self.assertTrue(fonts);self.assertTrue(all(font[1] in ('ttf','otf','cff') for font in fonts))
 
     def test_scenario_report_contains_assumption_and_exact_calculations(self):
         request=RunCreate.model_validate({

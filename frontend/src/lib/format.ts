@@ -1,4 +1,8 @@
 // 展示用格式化。仅做单位换算与排版，不做权威财务计算（权威计算由后端 Python 沙箱完成）。
+export const companyLabels:Record<string,string>={CATL:'宁德时代'};
+export function datasetLabel(d:{id:string;name:string;company:string;year:number}):string{
+  return `${d.name} · ${companyLabels[d.company]??d.company} ${d.year} 年报 · ${d.id}`;
+}
 export const names:Record<string,string>={group:'集团',power_battery:'动力电池',energy_storage:'储能电池'};
 export const metrics:Record<string,string>={revenue:'营业收入',cost_of_sales:'营业成本',reported_gross_margin:'披露毛利率',parent_net_profit:'归母净利润',parent_adjusted_net_profit:'扣非归母净利润',operating_cash_flow:'经营现金流',total_assets:'总资产',parent_equity:'归母权益',inventory:'存货',accounts_receivable:'应收账款'};
 
