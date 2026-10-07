@@ -2,31 +2,41 @@
 import json
 import os
 import re
+from pathlib import Path
 
 import fitz
 
 from chain_eye.reporting.common import formula_expression
 
 
+FONT_FILE_ENV = 'CHAIN_EYE_CJK_FONT_FILE'
+SYSTEM_CJK_FONT_CANDIDATES = (
+    # Windows
+    r'C:\Windows\Fonts\simhei.ttf',
+    r'C:\Windows\Fonts\msyh.ttc',
+    r'C:\Windows\Fonts\simsun.ttc',
+    r'C:\Windows\Fonts\simkai.ttf',
+    # macOS
+    '/System/Library/Fonts/PingFang.ttc',
+    '/System/Library/Fonts/STHeiti Light.ttc',
+    # Linux
+    '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+    '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+    '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
+)
+
+
 def _discover_cjk_font():
-    """返回系统里可嵌入的中文字体文件路径；找不到则返回 None 回退到内置字体。"""
-    candidates = [
-        # Windows
-        r'C:\Windows\Fonts\simhei.ttf',
-        r'C:\Windows\Fonts\msyh.ttc',
-        r'C:\Windows\Fonts\simsun.ttc',
-        r'C:\Windows\Fonts\simkai.ttf',
-        # macOS
-        '/System/Library/Fonts/PingFang.ttc',
-        '/System/Library/Fonts/STHeiti Light.ttc',
-        # Linux
-        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
-        '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
-        '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
-    ]
-    for path in candidates:
-        if os.path.isfile(path):
-            return path
+    """返回可嵌入的 CJK 字体；显式配置错误时拒绝静默降级。"""
+    configured=os.getenv(FONT_FILE_ENV)
+    if configured:
+        path=Path(configured).expanduser()
+        if not path.is_file() or not os.access(path, os.R_OK):
+            raise RuntimeError(f'{FONT_FILE_ENV} does not point to a readable font file')
+        return str(path)
+    for candidate in SYSTEM_CJK_FONT_CANDIDATES:
+        if os.path.isfile(candidate):
+            return candidate
     return None
 
 
@@ -134,4 +144,5 @@ def render_pdf(report):
         footer=f'Chain Eye | {report.run_id} | 第 {index}/{len(document)} 页'
         page.insert_text((MARGIN,PAGE_HEIGHT-24),footer,fontname=fontname,fontsize=7,color=(0.45,0.48,0.52))
     document.set_metadata({'title':report.title,'subject':f'Run {report.run_id}','author':'Chain Eye','creator':'Chain Eye R5 deterministic renderer'})
+    if fontfile:document.subset_fonts()
     result=document.tobytes(garbage=4,deflate=True);document.close();return result
