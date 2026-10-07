@@ -1,10 +1,39 @@
 """Portable PDF export using PyMuPDF's embedded CJK font."""
 import json
+import os
 import re
 
 import fitz
 
 from chain_eye.reporting.common import formula_expression
+
+
+def _discover_cjk_font():
+    """返回系统里可嵌入的中文字体文件路径；找不到则返回 None 回退到内置字体。"""
+    candidates = [
+        # Windows
+        r'C:\Windows\Fonts\simhei.ttf',
+        r'C:\Windows\Fonts\msyh.ttc',
+        r'C:\Windows\Fonts\simsun.ttc',
+        r'C:\Windows\Fonts\simkai.ttf',
+        # macOS
+        '/System/Library/Fonts/PingFang.ttc',
+        '/System/Library/Fonts/STHeiti Light.ttc',
+        # Linux
+        '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
+        '/usr/share/fonts/truetype/wqy/wqy-zenhei.ttc',
+        '/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf',
+    ]
+    for path in candidates:
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def _font_name_and_file():
+    """返回 (fontname, fontfile)；fontfile 非空时需在每页 insert_font 注册以真正嵌入。"""
+    path = _discover_cjk_font()
+    return ('chain-cjk', path) if path else ('china-s', None)
 
 PAGE_WIDTH,PAGE_HEIGHT=fitz.paper_size('a4')
 MARGIN=48
@@ -73,7 +102,9 @@ def _wrap(text,font,size,width):
 
 
 def render_pdf(report):
-    document=fitz.open();font=fitz.Font(fontname='china-s')
+    document=fitz.open()
+    fontname,fontfile=_font_name_and_file()
+    font=fitz.Font(fontfile=fontfile) if fontfile else fitz.Font(fontname='china-s')
     styles={
         'title':(17,23,(0.08,0.18,0.28),10),
         'heading':(13,19,(0.07,0.35,0.48),7),
@@ -94,12 +125,13 @@ def render_pdf(report):
             needed+=max(1,min(len(next_lines),2))*next_height+next_after
         if page is None or y+needed>PAGE_HEIGHT-BOTTOM:
             page=document.new_page(width=PAGE_WIDTH,height=PAGE_HEIGHT);y=MARGIN
+            if fontfile:page.insert_font(fontname=fontname,fontfile=fontfile)
         for line in wrapped:
-            page.insert_text((MARGIN,y),line,fontname='china-s',fontsize=size,color=color)
+            page.insert_text((MARGIN,y),line,fontname=fontname,fontsize=size,color=color)
             y+=line_height
         y+=after
     for index,page in enumerate(document,1):
         footer=f'Chain Eye | {report.run_id} | 第 {index}/{len(document)} 页'
-        page.insert_text((MARGIN,PAGE_HEIGHT-24),footer,fontname='china-s',fontsize=7,color=(0.45,0.48,0.52))
+        page.insert_text((MARGIN,PAGE_HEIGHT-24),footer,fontname=fontname,fontsize=7,color=(0.45,0.48,0.52))
     document.set_metadata({'title':report.title,'subject':f'Run {report.run_id}','author':'Chain Eye','creator':'Chain Eye R5 deterministic renderer'})
     result=document.tobytes(garbage=4,deflate=True);document.close();return result
