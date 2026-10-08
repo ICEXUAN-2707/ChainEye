@@ -1,8 +1,8 @@
 # P2 Agent 基线验收记录
 
-日期：2026-10-08  
-分支：`chore/p2-agent-baseline`  
-基线：`main@c7642185458a37719ca210a08b7cd8e18f3e129a`  
+- 日期：2026-10-08
+- 分支：`chore/p2-agent-baseline`
+- 基线：`main@c7642185458a37719ca210a08b7cd8e18f3e129a`
 环境：Windows 11 10.0.26200、Python 3.12.10、Node 24.13.0、npm 11.6.2。
 
 ## 变更范围
@@ -33,4 +33,3 @@ smoke 未配置 DeepSeek 密钥，因此 live Run 的真实结果为 `partial + 
 ## 结论
 
 G1 文档与现状基线可提交审查。只有本 PR 合并后，才从最新集成基线建立 G2 `refactor/p2-agent-registries`；不得直接跳到 MCP、第二企业或 OCR。
-

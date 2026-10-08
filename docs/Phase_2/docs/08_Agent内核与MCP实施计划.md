@@ -91,4 +91,3 @@ Ubuntu CI 跑完整无付费门禁；Windows CI 至少跑依赖安装、后端�
 - 任一结果可追到 Run、Node、Skill、Tool、Prompt 与输出哈希。
 - 旧 CATL 上传、复核、计算、Run、回放和报告没有回归。
 - 不存在平行 DTO、重复 Tool 实现、假成功、假模型调用或代签人工验收。
-
