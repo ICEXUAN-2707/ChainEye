@@ -11,7 +11,9 @@ from chain_eye.api.dto import ResumeRequest,RunCreate
 from chain_eye.application.errors import AppError
 from chain_eye.application.financials import FinancialService
 from chain_eye.application.reports import ReportService
-from chain_eye.application.run_manifest import build_execution_manifest,manifest_sha256
+from chain_eye.application.run_manifest import (
+    ExecutionManifestError,build_execution_manifest,manifest_sha256,resolve_execution_manifest,
+)
 from chain_eye.application.run_tools import RunTools
 from chain_eye.application.scenarios import ScenarioExecutionService
 from chain_eye.domain.contracts import Claim,ErrorBody
@@ -90,22 +92,22 @@ class RunExecutionService:
         return self.create_with_status(request,idempotency_key)[0]
 
     def create_with_status(self,request:RunCreate,idempotency_key:str):
-        if request.mode=='replay':self._validate_replay(request)
+        source=self._validate_replay(request) if request.mode=='replay' else None
         config=getattr(self.llm,'public_config',{'provider':'test','model':'injected','response_format':'json_object'})
         try:
             skills=(self.financial_skill,self.research_skill,self.scenario_skill)
-            manifest=build_execution_manifest(self.claim_prompt,skills,self.tool_registry)
+            if source is None:
+                manifest=build_execution_manifest(self.claim_prompt,skills,self.tool_registry)
+                manifest_hash=manifest_sha256(manifest)
+            else:
+                self._resolve_bindings(source)
+                manifest=source['execution_manifest'];manifest_hash=source['execution_manifest_sha256']
+            prompt_ref=manifest['prompt'];skill_refs=manifest['skills']
             return self.repository.create_run(
-                request,idempotency_key,config,self.claim_prompt.version,
-                prompt_id=self.claim_prompt.id,prompt_sha256=self.claim_prompt.sha256,
-                skill_versions={
-                    skill.id:{
-                        'version':skill.version,'spec_sha256':skill.spec_sha256,
-                        'instructions_sha256':skill.instructions_sha256,
-                    }
-                    for skill in skills
-                },
-                execution_manifest=manifest,execution_manifest_sha256=manifest_sha256(manifest),
+                request,idempotency_key,config,prompt_ref['version'],
+                prompt_id=prompt_ref['id'],prompt_sha256=prompt_ref['sha256'],
+                skill_versions=skill_refs,
+                execution_manifest=manifest,execution_manifest_sha256=manifest_hash,
             )
         except IdempotencyConflictError as exc:
             raise AppError('INVALID_INPUT','Idempotency-Key 已用于不同请求',409,details={'reason':'IDEMPOTENCY_KEY_REUSED'}) from exc
@@ -117,6 +119,24 @@ class RunExecutionService:
             raise AppError('SCOPE_MISMATCH','回放源 Run 不属于相同数据快照',409)
         if source['status'] not in ('completed','partial'):
             raise AppError('INVALID_RUN_STATE','仅可回放已结束的 Run',409)
+        if not source.get('execution_manifest') or not source.get('execution_manifest_sha256'):
+            raise AppError(
+                'EXECUTION_VERSION_UNAVAILABLE','回放源 Run 缺少不可变执行版本清单',409,
+                details={'resource':'execution_manifest','source_run_id':source['id']},
+            )
+        return source
+
+    def _resolve_bindings(self,record):
+        try:
+            return resolve_execution_manifest(
+                record.get('execution_manifest'),record.get('execution_manifest_sha256'),
+                self.prompt_registry,self.skill_registry,self.tool_registry,
+            )
+        except ExecutionManifestError as exc:
+            raise AppError(
+                'EXECUTION_VERSION_UNAVAILABLE','Run 创建时绑定的 Agent 资源不可用或不一致',409,
+                details={'reason':str(exc)},
+            ) from exc
 
     def resume(self,run_id,request:ResumeRequest):
         current=self.repository.get_run_record(run_id)
@@ -139,8 +159,9 @@ class RunExecutionService:
         if record is None or record['status']!='running':return
         started=self.clock()
         try:
-            if record['mode']=='replay':self._execute_replay(record);return
-            self._execute_live(record,started)
+            bindings=self._resolve_bindings(record)
+            if record['mode']=='replay':self._execute_replay(record,bindings);return
+            self._execute_live(record,started,bindings)
         except TypedProviderError as exc:
             self._finish_error(run_id,record,exc.code,str(exc),exc.retryable)
         except ValidationError as exc:
@@ -159,23 +180,35 @@ class RunExecutionService:
         self.repository.append_event(record['id'],'node_status',node,{'status':status,**(details or {})})
         return record
 
-    def _execute_live(self,record,started):
+    def _execute_live(self,record,started,bindings):
         run_id=record['id'];request=RunCreate.model_validate(record['request'])
+        financial_skill=bindings.skills['financial_diagnosis']
+        research_skill=bindings.skills['evidence_bound_research']
+        scenario_skill=bindings.skills['scenario_impact'];claim_prompt=bindings.prompt
         tools=RunTools(
             self.repository,self.financials,self.scenarios,run_id,
             record['dataset_id'],record['dataset_version'],registry=self.tool_registry,
+            tool_specs=bindings.tools,
         )
-        financial_tools=tools.for_skill(self.financial_skill)
-        research_tools=tools.for_skill(self.research_skill)
-        scenario_tools=tools.for_skill(self.scenario_skill)
+        financial_tools=tools.for_skill(financial_skill)
+        research_tools=tools.for_skill(research_skill)
+        scenario_tools=tools.for_skill(scenario_skill)
 
         record=self._node(record,'plan',details={
             'plan':['extract','validate','finance','research','scenario_if_requested','verify','report'],
-            'prompt_id':self.claim_prompt.id,'prompt_version':self.claim_prompt.version,
-            'prompt_sha256':self.claim_prompt.sha256,
+            'execution_manifest_sha256':bindings.sha256,
+            'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
+            'prompt_sha256':claim_prompt.sha256,
             'skills':[
-                {'id':skill.id,'version':skill.version,'instructions_sha256':skill.instructions_sha256}
-                for skill in (self.financial_skill,self.research_skill,self.scenario_skill)
+                {
+                    'id':skill.id,'version':skill.version,'spec_sha256':skill.spec_sha256,
+                    'instructions_sha256':skill.instructions_sha256,
+                }
+                for skill in (financial_skill,research_skill,scenario_skill)
+            ],
+            'tools':[
+                {'name':spec.name,'version':spec.version,'spec_sha256':spec.spec_sha256}
+                for spec in sorted(bindings.tools.values(),key=lambda item:item.name)
             ],
         })
         self._budget(started,record)
@@ -250,22 +283,23 @@ class RunExecutionService:
                 record=self.repository.update_run(run_id,model_calls=calls,node_retries={**record.get('node_retries',{}),'research':attempt}) or record
                 try:
                     messages=[
-                        {'role':'system','content':self.claim_prompt.content},
+                        {'role':'system','content':claim_prompt.content},
                         {'role':'user','content':json.dumps({'question':request.question,'context':context},ensure_ascii=False,separators=(',',':'))},
                     ]
                     # The current provider contract intentionally exposes only the
                     # R4/R5 ``claims`` task; add a task schema and adapter support
                     # before reusing this research node for another task name.
                     generation=self.llm.generate(
-                        'claims',self.claim_prompt.version,messages,CLAIM_RESPONSE_SCHEMA,
+                        'claims',claim_prompt.version,messages,CLAIM_RESPONSE_SCHEMA,
                         {'timeout_seconds':60,'max_output_tokens':4000},
                     );break
                 except TypedProviderError as exc:
                     self.repository.append_event(run_id,'llm_call','research',{
                         'status':'failed','provider':getattr(self.llm,'provider','unknown'),
-                        'model':getattr(self.llm,'model','unknown'),'skill_id':self.research_skill.id,
-                        'skill_version':self.research_skill.version,'prompt_id':self.claim_prompt.id,
-                        'prompt_version':self.claim_prompt.version,'prompt_sha256':self.claim_prompt.sha256,
+                        'model':getattr(self.llm,'model','unknown'),'skill_id':research_skill.id,
+                        'skill_version':research_skill.version,'skill_spec_sha256':research_skill.spec_sha256,
+                        'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
+                        'prompt_sha256':claim_prompt.sha256,
                         'attempt':attempt+1,'error':{'code':exc.code,'message':str(exc),'retryable':exc.retryable},
                     })
                     if not exc.retryable or attempt==MAX_NODE_RETRIES:raise
@@ -276,9 +310,10 @@ class RunExecutionService:
             record=self.repository.update_run(run_id,claims=candidate_claims) or record
             self.repository.append_event(run_id,'llm_call','research',{
                 'status':'completed','provider':generation.provider,'model':generation.model,
-                'skill_id':self.research_skill.id,'skill_version':self.research_skill.version,
-                'prompt_id':self.claim_prompt.id,'prompt_version':self.claim_prompt.version,
-                'prompt_sha256':self.claim_prompt.sha256,
+                'skill_id':research_skill.id,'skill_version':research_skill.version,
+                'skill_spec_sha256':research_skill.spec_sha256,
+                'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
+                'prompt_sha256':claim_prompt.sha256,
                 'usage':generation.usage,'latency_ms':generation.latency_ms,
                 'request_id':generation.request_id,'cost':generation.cost,'claim_count':len(candidate_claims),
             })
@@ -353,10 +388,16 @@ class RunExecutionService:
         self.repository.append_event(run_id,'node_status','verify',{'status':'completed','claims':final_claims,'report_ready':False})
         self.reports.complete(run_id)
 
-    def _execute_replay(self,record):
+    def _execute_replay(self,record,bindings):
         source=self.repository.get_run_record(record['request']['replay_run_id'])
         if source is None:raise AppError('NOT_FOUND','回放源 Run 不存在',404)
-        self.repository.append_event(record['id'],'node_status','plan',{'status':'completed','mode':'replay','source_run_id':source['id']})
+        source_bindings=self._resolve_bindings(source)
+        if source_bindings.sha256!=bindings.sha256:
+            raise AppError('EXECUTION_VERSION_UNAVAILABLE','回放 Run 与源 Run 的执行版本清单不一致',409)
+        self.repository.append_event(record['id'],'node_status','plan',{
+            'status':'completed','mode':'replay','source_run_id':source['id'],
+            'execution_manifest_sha256':bindings.sha256,
+        })
         finalizing=source['status']=='completed'
         self.repository.update_run(
             record['id'],status='running' if finalizing else source['status'],current_node='report' if finalizing else 'verify',claims=source.get('claims',[]),
