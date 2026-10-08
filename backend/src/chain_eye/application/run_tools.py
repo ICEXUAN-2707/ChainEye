@@ -6,6 +6,7 @@ from chain_eye.tools.registry import (
     ToolRegistry,_event_value,
 )
 from chain_eye.tools.spec import ToolContext,ToolFailure
+from chain_eye.skills.runtime import SkillPolicyError
 
 
 class RunTools:
@@ -18,10 +19,11 @@ class RunTools:
         self.registry=registry or DEFAULT_TOOL_REGISTRY;self.skill=skill
         self.tool_specs=tool_specs or {};self.deadline=deadline
 
-    def for_skill(self,skill):
+    def for_skill(self,skill,deadline=None):
         return RunTools(
             self.repository,self.financial_service,self.scenario_service,self.run_id,
-            self.dataset_id,self.dataset_version,self.clock,self.registry,skill,self.tool_specs,self.deadline,
+            self.dataset_id,self.dataset_version,self.clock,self.registry,skill,self.tool_specs,
+            deadline if deadline is not None else self.deadline,
         )
 
     def call(self,name,arguments):
@@ -34,10 +36,18 @@ class RunTools:
         )
         allowed=getattr(self.skill,'allowed_tools',None)
         spec=self.tool_specs.get(name)
-        return self.registry.call(
-            name,arguments,context,'agent',allowed,
-            version=getattr(spec,'version',None),spec_sha256=getattr(spec,'spec_sha256',None),
-        )
+        try:
+            return self.registry.call(
+                name,arguments,context,'agent',allowed,
+                version=getattr(spec,'version',None),spec_sha256=getattr(spec,'spec_sha256',None),
+            )
+        except ToolFailure as exc:
+            if self.deadline is not None and self.clock()>self.deadline:
+                raise SkillPolicyError(
+                    'SKILL_BUDGET_EXCEEDED',f'skill time budget exceeded: {getattr(self.skill,"id","unknown")}',
+                    {'skill_id':getattr(self.skill,'id',None),'skill_version':getattr(self.skill,'version',None)},
+                ) from exc
+            raise
 
 
 __all__=[

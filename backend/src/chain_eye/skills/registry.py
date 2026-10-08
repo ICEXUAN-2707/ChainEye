@@ -4,6 +4,7 @@ from pathlib import Path
 
 from chain_eye.prompts.registry import DEFAULT_PROMPT_REGISTRY,PromptRegistryError,content_sha256,normalized_text
 from chain_eye.skills.schema import SkillSpec
+from chain_eye.skills.runtime import KNOWN_INPUT_CONTRACTS,KNOWN_OUTPUT_CONTRACTS
 from chain_eye.tools.registry import DEFAULT_TOOL_REGISTRY
 from chain_eye.tools.spec import ToolFailure
 
@@ -18,6 +19,8 @@ class SkillRegistry:
         for spec in specs:
             identity=(spec.id,spec.version)
             if identity in self._specs:raise SkillRegistryError(f'duplicate skill: {spec.id}@{spec.version}')
+            if spec.input_contract not in KNOWN_INPUT_CONTRACTS or spec.output_contract not in KNOWN_OUTPUT_CONTRACTS:
+                raise SkillRegistryError(f'unknown skill contract: {spec.id}@{spec.version}')
             self._specs[identity]=spec;versions_by_id.setdefault(spec.id,set()).add(spec.version)
         if not self._specs:raise SkillRegistryError('skill registry is empty')
         if active_versions is None:

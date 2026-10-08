@@ -23,6 +23,7 @@ from chain_eye.domain.scenario import IdempotencyConflictError
 from chain_eye.ports.services import ModelInvalidResponse,TypedProviderError
 from chain_eye.prompts.registry import DEFAULT_PROMPT_REGISTRY
 from chain_eye.skills.registry import DEFAULT_SKILL_REGISTRY
+from chain_eye.skills.runtime import SkillPolicyError,SkillRuntimeGuard
 from chain_eye.tools.registry import DEFAULT_TOOL_REGISTRY
 
 RUN_BUDGET_SECONDS=600
@@ -76,6 +77,7 @@ class RunExecutionService:
         self.repository=repository;self.llm=llm;self.clock=clock
         self.financials=FinancialService(repository);self.scenarios=ScenarioExecutionService(repository)
         self.reports=ReportService(repository)
+        self.skill_runtime=SkillRuntimeGuard(clock)
         self.tool_registry=tool_registry or DEFAULT_TOOL_REGISTRY
         self.prompt_registry=prompt_registry or DEFAULT_PROMPT_REGISTRY
         self.skill_registry=skill_registry or DEFAULT_SKILL_REGISTRY
@@ -168,12 +170,30 @@ class RunExecutionService:
             self._finish_error(run_id,record,'MODEL_INVALID_RESPONSE',str(exc),False)
         except AppError as exc:
             self._finish_error(run_id,record,exc.code,exc.message,exc.retryable,exc.details)
+        except SkillPolicyError as exc:
+            self._finish_error(run_id,record,exc.code,str(exc),False,exc.details)
         except Exception as exc:
             self._finish_error(run_id,record,'RUN_FAILED',str(exc),False)
 
-    def _budget(self,started,record):
+    def _budget(self,started,record,session=None):
         if self.clock()-started>RUN_BUDGET_SECONDS:raise AppError('BUDGET_EXCEEDED','Run 已超过 10 分钟总预算',429)
         if record.get('model_calls',0)>=MAX_MODEL_CALLS:raise AppError('BUDGET_EXCEEDED','Run 已达到模型调用预算',429)
+        if session is not None:session.check_budget()
+
+    def _reserve_model_call(self,record,started,session,attempt):
+        self._budget(started,record,session)
+        skill=session.skill;skill_calls=dict(record.get('skill_model_calls',{}))
+        used=skill_calls.get(skill.id,0)
+        if used>=skill.max_model_calls:
+            raise SkillPolicyError(
+                'SKILL_BUDGET_EXCEEDED',f'skill model-call budget exceeded: {skill.id}',
+                {'skill_id':skill.id,'skill_version':skill.version,'max_model_calls':skill.max_model_calls},
+            )
+        skill_calls[skill.id]=used+1
+        return self.repository.update_run(
+            record['id'],model_calls=record.get('model_calls',0)+1,skill_model_calls=skill_calls,
+            node_retries={**record.get('node_retries',{}),'research':attempt},
+        ) or record
 
     def _node(self,record,node,status='started',details=None):
         record=self.repository.update_run(record['id'],current_node=node) or record
@@ -187,12 +207,9 @@ class RunExecutionService:
         scenario_skill=bindings.skills['scenario_impact'];claim_prompt=bindings.prompt
         tools=RunTools(
             self.repository,self.financials,self.scenarios,run_id,
-            record['dataset_id'],record['dataset_version'],registry=self.tool_registry,
+            record['dataset_id'],record['dataset_version'],clock=self.clock,registry=self.tool_registry,
             tool_specs=bindings.tools,
         )
-        financial_tools=tools.for_skill(financial_skill)
-        research_tools=tools.for_skill(research_skill)
-        scenario_tools=tools.for_skill(scenario_skill)
 
         record=self._node(record,'plan',details={
             'plan':['extract','validate','finance','research','scenario_if_requested','verify','report'],
@@ -212,6 +229,13 @@ class RunExecutionService:
             ],
         })
         self._budget(started,record)
+
+        run_deadline=started+RUN_BUDGET_SECONDS
+        financial_session=self.skill_runtime.start(financial_skill,{
+            'dataset_id':record['dataset_id'],'dataset_version':record['dataset_version'],
+            'requested_metric_ids':list(FINANCIAL_METRIC_IDS),
+        },run_deadline)
+        financial_tools=tools.for_skill(financial_skill,financial_session.deadline)
 
         record=self._node(record,'extract')
         segment_fact_metrics=['revenue','cost_of_sales']
@@ -257,10 +281,16 @@ class RunExecutionService:
             record=self.repository.update_run(run_id,calculation_ids=calculation_ids) or record
             self.repository.append_event(run_id,'calculation','finance',{'calculation_ids':calculation_ids,'formula_ids':[item.formula_id for item in calculations]})
         calculations=[self.repository.get('calculations',item) for item in calculation_ids]
+        financial_session.validate_output({'calculations':calculations})
         computed_calculation_ids=[item['id'] for item in calculations if item and item.get('status')=='computed']
         self._budget(started,record)
 
         record=self._node(record,'research')
+        research_session=self.skill_runtime.start(research_skill,{
+            'dataset_id':record['dataset_id'],'dataset_version':record['dataset_version'],
+            'question':request.question,'verified_facts':verified_segment_facts,
+        },run_deadline)
+        research_tools=tools.for_skill(research_skill,research_session.deadline)
         candidate_claims=record.get('claims',[])
         evidence_ids=sorted({evidence_id for fact in verified_segment_facts for evidence_id in fact.evidence_ids})
         evidence=research_tools.call('get_evidence',{'evidence_ids':evidence_ids})
@@ -278,9 +308,7 @@ class RunExecutionService:
             }
             generation=None
             for attempt in range(MAX_NODE_RETRIES+1):
-                self._budget(started,record)
-                calls=record.get('model_calls',0)+1
-                record=self.repository.update_run(run_id,model_calls=calls,node_retries={**record.get('node_retries',{}),'research':attempt}) or record
+                record=self._reserve_model_call(record,started,research_session,attempt)
                 try:
                     messages=[
                         {'role':'system','content':claim_prompt.content},
@@ -291,7 +319,7 @@ class RunExecutionService:
                     # before reusing this research node for another task name.
                     generation=self.llm.generate(
                         'claims',claim_prompt.version,messages,CLAIM_RESPONSE_SCHEMA,
-                        {'timeout_seconds':60,'max_output_tokens':4000},
+                        {'timeout_seconds':max(1,min(60,int(research_session.remaining_seconds()))),'max_output_tokens':4000},
                     );break
                 except TypedProviderError as exc:
                     self.repository.append_event(run_id,'llm_call','research',{
@@ -336,7 +364,12 @@ class RunExecutionService:
                 'revenue_fact_id':revenue.id,'cost_fact_id':cost.id,'revenue_revision':revenue.revision,'cost_revision':cost.revision,
                 'model_version':'static-gross-profit-v1','assumptions':request.assumptions.model_dump(mode='json'),
             }
+            scenario_session=self.skill_runtime.start(
+                scenario_skill,{'request':scenario_request},run_deadline,
+            )
+            scenario_tools=tools.for_skill(scenario_skill,scenario_session.deadline)
             result=scenario_tools.call('compute_scenario',{'request':scenario_request})
+            scenario_session.validate_output({'result':result})
             scenario_ids=[result.scenario_id];assumption_ids=[result.assumption_id]
             calculation_ids=[*calculation_ids,*result.calculation_ids]
             computed_calculation_ids=[*computed_calculation_ids,*result.calculation_ids]
@@ -379,6 +412,7 @@ class RunExecutionService:
             checked.append(claim)
         final_claims=[item.model_dump(mode='json') for item in checked]
         if not final_claims:raise ModelInvalidResponse('run produced no claims')
+        research_session.validate_output({'claims':final_claims})
         self.repository.append_event(run_id,'node_status','verify',{
             'status':'support_checked','pending':sum(item.review_status=='pending' for item in checked),
             'insufficient':sum(item.review_status=='insufficient' for item in checked),
