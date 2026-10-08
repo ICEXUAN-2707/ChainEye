@@ -4,6 +4,20 @@
 先查当前README/AGENTS/迁移/路由/DTO/依赖锁/测试/分支。旧参考栈为FastAPI/Pydantic/SQLite/PyMuPDF/Decimal+React/TypeScript；若仓库已合理改变，记录映射而非重写。
 目标仍是单体后端+独立前端+单作业worker。暂不引入必须维护的新数据库/多服务平台。解析/OCR为可替换适配器，文档作业可异步执行并持久化；现有worker可复用。
 
+## Agent Kernel
+
+现有 `RunExecutionService` 是唯一运行系统。改造时把隐式 plan、extract、validate、finance、research、scenario、verify、report 迁移为 typed graph、state 和 node spec，不能另建第二套 Run 或复制业务服务。每个节点声明输入/输出、允许 Skill/Tool、预算、重试、失败、恢复和事件字段；图可导出为稳定 JSON 供评审复现。
+
+六个现有 Tool 迁入单一 ToolRegistry，保留快照作用域、90 秒预算、输入/输出 SHA256 与失败语义。Prompt 从内联常量迁为版本化文件并记录内容 SHA256。Skill 是运行时加载的受约束任务包，至少包含 ID、版本、允许 Tool、Prompt 引用、输入和输出约束；只有说明文档而未被运行时引用不算实现。
+
+Agent/模型不得写入 `verified`、绕过 Dataset version、执行权威金额计算、伪造引用或把缺失值改成 0/空串。财务与情景继续由确定性领域服务计算，Claim 继续经过引用与数字支持检查。
+
+## MCP MVP
+
+MCP 使用独立 stdio 入口，共用 ToolRegistry 和 Repository，不复制 Tool handler。首版提供 Dataset version、Evidence、Run trace、Report、Skill metadata 资源，以及 `get_facts`、`get_evidence`、`search_documents`、`get_run_trace`、`get_report` 只读工具和 Prompt metadata。禁止 HTTP/SSE、公网托管、任意 shell/SQL/文件路径/网络访问、密钥读写和人工 `verified` 写入。
+
+协议测试必须覆盖 initialize、list、合法调用、非法参数、跨快照拒绝、未知版本、敏感信息不外泄与正常退出。`compute_financials`、`compute_scenario`、`validate_claims` 暂不作为 MCP 外部工具，直到上下文、幂等与写入边界另行审查。
+
 ## 职责与依赖
 api负责HTTP/错误；application负责确认、作业、复核、版本事务和研究；domain负责事实/计算/Claim/金融约束；ports声明Parser/OCR/LLM/Retriever/Repository；adapters连接解析器与供应商。领域不导入OCR/HTTP/LLM。前端只格式化，金额不经parseFloat回写。
 配置层采用company_profile+industry_profile+model_applicability。公司适配定义名称别名/业务映射，不含硬编码答案、页码或真实参数。
@@ -37,3 +51,5 @@ M5保持ΔC=C0*s*x；C1=C0+ΔC；R1=R0+k*ΔC；GP1=R1-C1；GM1=GP1/R1。s[0,1]/x
 
 ## 运行约束
 先用单并发OCR与研究作业测资源，页面/API保持可用。预算沿用当前配置，若缺失参考上阶段10分钟/12次模型调用/单工具90秒为候选，并按实测分离解析和研究超时；不是已验证SLA。超时partial/failed、可恢复，不伪成功。默认本机；公网需继续完成身份与owner隔离。原件、快照、派生结果和迁移纳入备份。
+
+正式复现环境为 Windows 11 与 Ubuntu，Python 3.12、Node 24、UTF-8、锁文件安装。团队已决定不交付 Docker/Compose。CI 不调用付费模型；live 需要真实密钥，replay 必须源于已保存的真实 Run。结构化 JSONL 日志须脱敏，不记录 API key、Authorization、完整环境变量、无界原文或完整模型请求。

@@ -10,12 +10,12 @@
 
 ## Phase 1 基线状态
 
-截至 2026-10-06，远端 `main` 候选为 `a37752073a5fc01337d26e937da55b9226487a34`。PR #8、#12、#13、#14 已合并，Vite 安全维护 PR #15 也已合并；Vite 已锁定为 `7.3.7`，本地 `npm audit` 为 0 个漏洞。
+截至 2026-10-08，远端 `main` 为 `c7642185458a37719ca210a08b7cd8e18f3e129a`。PR #8、#12—#17 已合并；Vite 锁定为 `7.3.7`，PR17 补齐诊断比较、数据集身份、PDF CJK 字体发现/子集嵌入及相应回归测试。
 
-该提交上的 139 项后端测试、30 条 fixture/4 项毛利基线检查、契约生成零漂移、前端干净安装、25 项前端测试、生产构建和真实本地 HTTP 冒烟均通过。当前状态仍是 `candidate_pending_manual`，不是正式 `frozen`：本环境没有可用浏览器，GitHub 匿名 Actions API 返回 403；可见浏览器、报告下载、关键结论支持性、团队财务签核、在线 CI 和第二位开发者独立复现必须由实际执行者补充证据。
+该提交上的 141 项后端测试、30 条 fixture/4 项毛利基线检查、契约生成零漂移、前端干净安装、28 项前端测试、生产构建和真实本地 HTTP 冒烟均通过；PR17 对应的 `main` GitHub Actions 也已成功。当前状态仍是 `candidate_pending_manual`，不是正式 `frozen`：可见浏览器、报告下载、关键结论支持性、团队财务签核和第二位开发者独立复现仍必须由实际执行者补充证据。
 
 详细结果和未完成项见 `Phase_1/README.md` 与 `../validation/Phase1冻结验收记录.md`。
 
 ## Phase 2 分支入口
 
-只有 Phase 1 人工门槛完成、冻结文档合并并得到唯一 `main` 冻结提交后，才从该提交建立一次共享 `develop`。P2 短期任务分支从 `develop` 创建并 PR 回 `develop`；阶段候选从 `develop` 建立 `release/phase2-v0.1`，完整验收后 PR 到 `main`。
+Phase 2 当前只从稳定 `main` 开展 Agent 基线、Registry、Orchestrator、MCP 与原生复现的独立短期 PR；不因此代签 Phase 1 人工门槛或伪造正式冻结。共享 `develop` 仅在团队决定启用并得到唯一冻结提交后建立一次。完整顺序见 `Phase_2/docs/07_剩余任务执行计划.md`。
