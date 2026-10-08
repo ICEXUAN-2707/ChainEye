@@ -8,11 +8,14 @@
 ## 实现核对
 
 - 现有六个 Run Tool 迁入单一 `ToolRegistry`，原 `RunTools` 只保留兼容门面，不保留第二份 handler 实现。
-- `ToolSpec` 声明版本、调用方、单工具超时、副作用类型与 handler；Registry 拒绝重复、未知、调用方越权和 Skill allowlist 越权。
+- `ToolSpec` 声明版本、调用方、单工具超时、副作用类型、实现 ID 与 handler；Registry 拒绝重复、未知、调用方越权和 Skill allowlist 越权。
 - `r4-claims-v3` 从内联常量迁到版本化文件，manifest 固定 SHA256；加载时校验路径、内容和哈希。
 - `evidence_bound_research`、`financial_diagnosis`、`scenario_impact` 以可解析清单和指令文件加载；依赖的 Tool 与 Prompt 必须存在且哈希一致。
 - Tool 与 Skill Registry 以 `(id/name, version)` 保存历史定义，并由 `active.json` 显式选择活动 Skill；同版本内容哈希不一致时拒绝解析。
-- 每个新建 Run 固化完整执行清单及清单哈希，包含 Prompt、三个 Skill 和全部 Tool 的版本与内容哈希；重放沿用来源 Run 的执行清单，不静默切换到当前活动版本。
+- 每个新建 Run 固化 schema v2 执行清单及清单哈希，包含 Prompt、三个 Skill、全部 Tool 的版本/规格/实现哈希，以及模型 provider、模型 ID、适配器版本、端点和安全公开配置哈希。
+- Tool 实现哈希自动覆盖 handler 源码；财务和情景 Tool 还覆盖应用服务与确定性领域规则模块。同版本替换 handler 或关键确定性实现时，旧 Run 在执行前 fail closed。
+- Live Run 执行前必须与固化模型配置完全匹配，模型响应返回的实际 provider/model 也必须匹配；重放沿用来源 Run 的执行清单和模型 provenance，不记录当前但未调用的模型。
+- 重放沿用来源 Run 的执行清单，不静默切换到当前活动版本。
 - Run 执行前解析并校验固化绑定；历史资源缺失、同版本内容变化或旧 Run 缺少执行清单时，以 `EXECUTION_VERSION_UNAVAILABLE` 失败，并且不进入 Tool、计算或模型调用。
 - Run 运行时只使用固化的 Prompt、Skill 与 Tool；Run 元数据、plan、tool_call 与 llm_call 事件记录对应版本和内容哈希。
 - 三个 Skill 增加机器可校验的输入/输出契约；运行时强制执行 Tool allowlist、总时限、模型调用次数及输出结构，且 Skill 时限与 Tool/模型共用同一时钟和截止时间。
@@ -27,7 +30,7 @@ $env:PYTHONPATH="backend/src"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-结果：155 项通过，耗时 88.444 秒。新增覆盖历史版本保留与缺失、同版本篡改、旧 Run 拒绝执行、重放清单一致、`max_model_calls=0`、Skill 时限及 Skill/Tool 截止时间优先级。
+结果：159 项通过，耗时 137.015 秒。新增覆盖历史版本保留与缺失、同版本 Prompt/Tool handler 篡改、旧 Run 拒绝执行、模型配置切换前置拒绝、模型响应 provenance 核验、重放复制来源模型信息、`max_model_calls=0`、Skill 时限及 Skill/Tool 截止时间优先级。
 
 ```powershell
 .\.venv\Scripts\python.exe tools/verify_baseline.py
@@ -56,10 +59,16 @@ npm.cmd run build --prefix frontend
 
 结果：`status=passed`；真实 HTTP、前端 HTML、CORS、上传、修订、场景、Run 事件游标均通过。未配置模型密钥时 Run 真实返回 `partial/MODEL_UNAVAILABLE`，没有伪造 live 模型成功。
 
+## 审查意见处置
+
+- “Tool 哈希不包含 handler 实现”：合理且必要，已修复。采用自动源码摘要而非仅依赖人工升级版本，并新增同版本替换 handler 必须拒绝的测试。
+- “模型/provider 未进入执行清单”：合理且必要，已修复。Live Run 在任何 Tool、计算或模型调用前核对当前适配器；响应 provenance 不匹配时拒绝产物；Replay 复制来源 provenance。
+- “PR 仍以 main 为目标，正式冻结与 develop 尚不存在”：结论合理，但属于人工冻结和仓库集成流程，不由本轮代码修复。未创建 `develop`、未代签冻结、未宣称 PR 可合并。
+
 ## 尚未完成或需人工确认
 
 - 未执行真实 DeepSeek 付费调用；本轮不以无密钥 smoke 替代 live 验收。
 - 浏览器可视验收不是本轮自动化结果，smoke 明确保留 `visual_browser_check=separate check`。
 - 另一位开发者独立复现、PR 互审和团队财务签核仍须由实际执行者确认，本记录不代签。
-- Phase 1 冻结状态仍为 `candidate_pending_manual`，正式冻结 SHA 与 `develop` 基线尚未由团队确认；因此 PR #19 当前目标分支为 `main` 的流程问题尚未关闭，本轮推送仅更新修复代码，不宣称可合并。
+- Phase 1 冻结状态仍为 `candidate_pending_manual`，正式冻结 SHA 与 `develop` 基线尚未由团队确认；因此 PR #19 当前目标分支为 `main` 的流程问题尚未关闭，不宣称可合并。
 - G3 显式 graph、G4 MCP MVP、G5 原生复现与结构化日志仍未实现，不能因 G2 通过而宣称 Agent Kernel 全部完成。
