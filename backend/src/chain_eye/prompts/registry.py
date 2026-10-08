@@ -70,5 +70,10 @@ class PromptRegistry:
             raise PromptRegistryError(f'unknown prompt: {prompt_id or "*"}@{version}')
         return spec
 
+    def resolve(self,prompt_id,version,sha256):
+        spec=self.require(version,prompt_id)
+        if spec.sha256!=sha256:raise PromptRegistryError(f'prompt hash mismatch: {prompt_id}@{version}')
+        return spec
+
 
 DEFAULT_PROMPT_REGISTRY=PromptRegistry.from_directory(Path(__file__).resolve().parent)

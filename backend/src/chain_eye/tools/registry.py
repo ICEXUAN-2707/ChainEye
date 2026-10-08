@@ -32,10 +32,11 @@ def _event_value(value):
 
 
 class ToolRegistry:
-    def __init__(self,specs):
-        self._specs={}
+    def __init__(self,specs,active_versions=None):
+        self._specs={};versions_by_name={}
         for spec in specs:
-            if spec.name in self._specs:raise ValueError(f'duplicate tool: {spec.name}')
+            identity=(spec.name,spec.version)
+            if identity in self._specs:raise ValueError(f'duplicate tool: {spec.name}@{spec.version}')
             if (
                 not spec.name or not spec.version or not spec.description
                 or not spec.allowed_callers or not spec.allowed_callers<=frozenset({'agent','mcp'})
@@ -43,19 +44,38 @@ class ToolRegistry:
                 or spec.timeout_seconds<=0 or spec.side_effect not in {'read','deterministic_write'}
                 or not callable(spec.handler)
             ):raise ValueError(f'invalid tool specification: {spec.name or "<unnamed>"}')
-            self._specs[spec.name]=spec
+            self._specs[identity]=spec;versions_by_name.setdefault(spec.name,set()).add(spec.version)
         if not self._specs:raise ValueError('tool registry is empty')
+        if active_versions is None:
+            ambiguous=[name for name,versions in versions_by_name.items() if len(versions)!=1]
+            if ambiguous:raise ValueError(f'active tool version is required: {ambiguous[0]}')
+            active_versions={name:next(iter(versions)) for name,versions in versions_by_name.items()}
+        if set(active_versions)!=set(versions_by_name):raise ValueError('active tool versions do not match registry names')
+        for name,version in active_versions.items():
+            if (name,version) not in self._specs:raise ValueError(f'unknown active tool: {name}@{version}')
+        self._active_versions=dict(active_versions)
 
     @property
-    def names(self):return frozenset(self._specs)
+    def names(self):return frozenset(self._active_versions)
 
-    def require(self,name):
-        spec=self._specs.get(name)
-        if spec is None:raise ToolFailure(f'tool is not allowed: {name}')
+    @property
+    def active_versions(self):return dict(self._active_versions)
+
+    def require(self,name,version=None):
+        selected=version if version is not None else self._active_versions.get(name)
+        spec=self._specs.get((name,selected))
+        if spec is None:raise ToolFailure(f'tool is not allowed: {name}@{selected or "*"}')
         return spec
 
-    def call(self,name,arguments,context:ToolContext,caller='agent',allowed_tools=None):
-        spec=self.require(name)
+    def resolve(self,name,version,spec_sha256):
+        spec=self.require(name,version)
+        if spec.spec_sha256!=spec_sha256:raise ToolFailure(f'tool hash mismatch: {name}@{version}')
+        return spec
+
+    def call(self,name,arguments,context:ToolContext,caller='agent',allowed_tools=None,version=None,spec_sha256=None):
+        spec=self.require(name,version)
+        if spec_sha256 is not None and spec.spec_sha256!=spec_sha256:
+            raise ToolFailure(f'tool hash mismatch: {name}@{spec.version}')
         if caller not in spec.allowed_callers:raise ToolFailure(f'tool is not allowed for caller: {caller}')
         if allowed_tools is not None and name not in allowed_tools:
             raise ToolFailure(f'tool is not allowed by skill: {name}')
@@ -63,7 +83,8 @@ class ToolRegistry:
         input_value,input_hash=_event_value(arguments)
         record={
             'call_id':call_id,'run_id':context.run_id,'tool_name':name,'tool_version':spec.version,
-            'skill_id':context.skill_id,'skill_version':context.skill_version,
+            'tool_spec_sha256':spec.spec_sha256,'skill_id':context.skill_id,
+            'skill_version':context.skill_version,'skill_spec_sha256':context.skill_spec_sha256,
             'input':input_value,'input_sha256':input_hash,'output':None,'output_sha256':None,
             'status':'running','error':None,'started_at':started,'ended_at':None,
         }

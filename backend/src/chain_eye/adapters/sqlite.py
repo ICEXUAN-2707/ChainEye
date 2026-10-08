@@ -77,6 +77,7 @@ class SQLiteRepository:
     def create_run(
         self,request:RunCreate,idempotency_key:str,model_config:dict,prompt_version:str,
         prompt_id:str|None=None,prompt_sha256:str|None=None,skill_versions:dict|None=None,
+        execution_manifest:dict|None=None,execution_manifest_sha256:str|None=None,
     ):
         request_body=request.model_dump(mode='json')
         body_hash=self._canonical_hash(request_body);scope=f"run:{request.dataset_id}"
@@ -101,7 +102,10 @@ class SQLiteRepository:
                 'updated_at':now.isoformat(),'model_config':model_config,'prompt_id':prompt_id,
                 'prompt_version':prompt_version,'prompt_sha256':prompt_sha256,
                 'skill_versions':skill_versions or {},
+                'execution_manifest':execution_manifest,
+                'execution_manifest_sha256':execution_manifest_sha256,
                 'claims':[],'calculation_ids':[],'scenario_ids':[],'model_calls':0,'node_retries':{},
+                'skill_model_calls':{},
                 'report_ready':False,
             }
             db.execute('INSERT INTO runs VALUES (?,?,?,?)',(run_id,request.dataset_id,request.dataset_version,json.dumps(record,ensure_ascii=False,separators=(',',':'))))

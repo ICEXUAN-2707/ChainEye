@@ -13,26 +13,43 @@ class SkillRegistryError(ValueError):
 
 
 class SkillRegistry:
-    def __init__(self,specs):
-        self._specs={}
+    def __init__(self,specs,active_versions=None):
+        self._specs={};versions_by_id={}
         for spec in specs:
-            if spec.id in self._specs:raise SkillRegistryError(f'duplicate skill: {spec.id}')
-            self._specs[spec.id]=spec
+            identity=(spec.id,spec.version)
+            if identity in self._specs:raise SkillRegistryError(f'duplicate skill: {spec.id}@{spec.version}')
+            self._specs[identity]=spec;versions_by_id.setdefault(spec.id,set()).add(spec.version)
+        if not self._specs:raise SkillRegistryError('skill registry is empty')
+        if active_versions is None:
+            ambiguous=[skill_id for skill_id,versions in versions_by_id.items() if len(versions)!=1]
+            if ambiguous:raise SkillRegistryError(f'active skill version is required: {ambiguous[0]}')
+            active_versions={skill_id:next(iter(versions)) for skill_id,versions in versions_by_id.items()}
+        if set(active_versions)!=set(versions_by_id):raise SkillRegistryError('active skill versions do not match registry IDs')
+        for skill_id,version in active_versions.items():
+            if (skill_id,version) not in self._specs:raise SkillRegistryError(f'unknown active skill: {skill_id}@{version}')
+        self._active_versions=dict(active_versions)
 
     @classmethod
     def from_directory(cls,root,tool_registry=None,prompt_registry=None):
         root=Path(root).resolve();tool_registry=tool_registry or DEFAULT_TOOL_REGISTRY
         prompt_registry=prompt_registry or DEFAULT_PROMPT_REGISTRY
+        active_path=root/'active.json'
+        try:active=json.loads(active_path.read_text(encoding='utf-8'))
+        except (OSError,UnicodeError,json.JSONDecodeError) as exc:raise SkillRegistryError('cannot read active skill versions') from exc
+        if not isinstance(active,dict) or not active or not all(isinstance(key,str) and isinstance(value,str) for key,value in active.items()):
+            raise SkillRegistryError('invalid active skill versions')
         specs=[];required={
             'id','version','description','instructions_path','instructions_sha256','allowed_tools',
-            'prompt_version','input_requirements','output_constraints','timeout_seconds','max_model_calls',
+            'prompt_version','input_requirements','output_constraints','input_contract','output_contract',
+            'timeout_seconds','max_model_calls',
         }
-        for manifest_path in sorted(root.glob('*/skill.json')):
+        for manifest_path in sorted(root.glob('**/skill.json')):
             try:raw=json.loads(manifest_path.read_text(encoding='utf-8'))
             except (OSError,UnicodeError,json.JSONDecodeError) as exc:raise SkillRegistryError(f'cannot read skill: {manifest_path.parent.name}') from exc
             if not isinstance(raw,dict) or set(raw)!=required:raise SkillRegistryError(f'invalid skill entry: {manifest_path.parent.name}')
-            if raw['id']!=manifest_path.parent.name:raise SkillRegistryError('skill ID does not match its directory')
-            for key in ('id','version','description','instructions_path','instructions_sha256'):
+            relative=manifest_path.relative_to(root)
+            if raw['id']!=relative.parts[0]:raise SkillRegistryError('skill ID does not match its directory')
+            for key in ('id','version','description','instructions_path','instructions_sha256','input_contract','output_contract'):
                 if not isinstance(raw[key],str) or not raw[key]:raise SkillRegistryError(f'invalid skill field: {key}')
             for key in ('allowed_tools','input_requirements','output_constraints'):
                 if not isinstance(raw[key],list) or not raw[key] or not all(isinstance(item,str) and item for item in raw[key]):
@@ -59,17 +76,27 @@ class SkillRegistry:
                 instructions_path=raw['instructions_path'],instructions_sha256=digest,instructions=instructions,
                 allowed_tools=frozenset(raw['allowed_tools']),prompt_version=raw['prompt_version'],
                 input_requirements=tuple(raw['input_requirements']),output_constraints=tuple(raw['output_constraints']),
+                input_contract=raw['input_contract'],output_contract=raw['output_contract'],
                 timeout_seconds=raw['timeout_seconds'],max_model_calls=raw['max_model_calls'],
             ))
-        if not specs:raise SkillRegistryError('skill registry is empty')
-        return cls(specs)
+        return cls(specs,active)
 
     @property
-    def ids(self):return frozenset(self._specs)
+    def ids(self):return frozenset(self._active_versions)
 
-    def require(self,skill_id):
-        spec=self._specs.get(skill_id)
-        if spec is None:raise SkillRegistryError(f'unknown skill: {skill_id}')
+    @property
+    def active_versions(self):return dict(self._active_versions)
+
+    def require(self,skill_id,version=None):
+        selected=version if version is not None else self._active_versions.get(skill_id)
+        spec=self._specs.get((skill_id,selected))
+        if spec is None:raise SkillRegistryError(f'unknown skill: {skill_id}@{selected or "*"}')
+        return spec
+
+    def resolve(self,skill_id,version,spec_sha256,instructions_sha256):
+        spec=self.require(skill_id,version)
+        if spec.spec_sha256!=spec_sha256 or spec.instructions_sha256!=instructions_sha256:
+            raise SkillRegistryError(f'skill hash mismatch: {skill_id}@{version}')
         return spec
 
 

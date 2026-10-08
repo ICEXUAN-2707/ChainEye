@@ -8,6 +8,8 @@
   "prompt_version": null,
   "input_requirements": ["immutable dataset version", "verified revenue and cost baseline", "acknowledged assumptions"],
   "output_constraints": ["preserve assumption identity", "preserve calculation identity", "do not present scenario as actual net profit"],
+  "input_contract": "scenario_request.v1",
+  "output_contract": "scenario_result.v1",
   "timeout_seconds": 600,
   "max_model_calls": 0
 }

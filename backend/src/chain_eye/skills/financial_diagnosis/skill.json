@@ -8,6 +8,8 @@
   "prompt_version": null,
   "input_requirements": ["immutable dataset version", "exact fact revisions", "requested metric IDs"],
   "output_constraints": ["program-computed values only", "missing inputs remain not computable", "no model-authored arithmetic"],
+  "input_contract": "financial_snapshot.v1",
+  "output_contract": "calculation_set.v1",
   "timeout_seconds": 600,
   "max_model_calls": 0
 }

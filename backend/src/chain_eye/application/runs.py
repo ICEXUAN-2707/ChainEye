@@ -11,6 +11,7 @@ from chain_eye.api.dto import ResumeRequest,RunCreate
 from chain_eye.application.errors import AppError
 from chain_eye.application.financials import FinancialService
 from chain_eye.application.reports import ReportService
+from chain_eye.application.run_manifest import build_execution_manifest,manifest_sha256
 from chain_eye.application.run_tools import RunTools
 from chain_eye.application.scenarios import ScenarioExecutionService
 from chain_eye.domain.contracts import Claim,ErrorBody
@@ -92,13 +93,19 @@ class RunExecutionService:
         if request.mode=='replay':self._validate_replay(request)
         config=getattr(self.llm,'public_config',{'provider':'test','model':'injected','response_format':'json_object'})
         try:
+            skills=(self.financial_skill,self.research_skill,self.scenario_skill)
+            manifest=build_execution_manifest(self.claim_prompt,skills,self.tool_registry)
             return self.repository.create_run(
                 request,idempotency_key,config,self.claim_prompt.version,
                 prompt_id=self.claim_prompt.id,prompt_sha256=self.claim_prompt.sha256,
                 skill_versions={
-                    skill.id:{'version':skill.version,'instructions_sha256':skill.instructions_sha256}
-                    for skill in (self.financial_skill,self.research_skill,self.scenario_skill)
+                    skill.id:{
+                        'version':skill.version,'spec_sha256':skill.spec_sha256,
+                        'instructions_sha256':skill.instructions_sha256,
+                    }
+                    for skill in skills
                 },
+                execution_manifest=manifest,execution_manifest_sha256=manifest_sha256(manifest),
             )
         except IdempotencyConflictError as exc:
             raise AppError('INVALID_INPUT','Idempotency-Key 已用于不同请求',409,details={'reason':'IDEMPOTENCY_KEY_REUSED'}) from exc
