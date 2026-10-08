@@ -1,0 +1,10 @@
+{
+  "prompts": [
+    {
+      "id": "claims",
+      "version": "r4-claims-v3",
+      "path": "claims/v3.md",
+      "sha256": "9878a716ef0ac5b4c4affba50ce9800de7510fd87f0468bea4e4b02f6fe61dfa"
+    }
+  ]
+}

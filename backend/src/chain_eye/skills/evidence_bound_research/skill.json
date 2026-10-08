@@ -1,0 +1,13 @@
+{
+  "id": "evidence_bound_research",
+  "version": "1",
+  "description": "Collect snapshot evidence and produce reference-constrained claims.",
+  "instructions_path": "SKILL.md",
+  "instructions_sha256": "3da83f018e4be9be1f021a15dfbb218baa51d8807461f6a5831a5e7349ee5eb9",
+  "allowed_tools": ["get_facts", "get_evidence", "search_documents", "validate_claims"],
+  "prompt_version": "r4-claims-v3",
+  "input_requirements": ["immutable dataset version", "verified baseline facts", "research question"],
+  "output_constraints": ["one to three claims", "references stay within context", "unsupported claims are downgraded"],
+  "timeout_seconds": 600,
+  "max_model_calls": 12
+}

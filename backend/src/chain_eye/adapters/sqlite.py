@@ -74,7 +74,10 @@ class SQLiteRepository:
         current=self.get_dataset(record['dataset_id'])
         return self._public_run(record,current.version if current else None)
 
-    def create_run(self,request:RunCreate,idempotency_key:str,model_config:dict,prompt_version:str):
+    def create_run(
+        self,request:RunCreate,idempotency_key:str,model_config:dict,prompt_version:str,
+        prompt_id:str|None=None,prompt_sha256:str|None=None,skill_versions:dict|None=None,
+    ):
         request_body=request.model_dump(mode='json')
         body_hash=self._canonical_hash(request_body);scope=f"run:{request.dataset_id}"
         now=datetime.now(timezone.utc);expires_at=now+timedelta(hours=24)
@@ -95,7 +98,9 @@ class SQLiteRepository:
                 'id':run_id,'dataset_id':request.dataset_id,'dataset_version':request.dataset_version,
                 'status':'queued','mode':request.mode,'current_node':None,'missing_requirements':[],
                 'error':None,'request':request_body,'owner_id':'local','created_at':now.isoformat(),
-                'updated_at':now.isoformat(),'model_config':model_config,'prompt_version':prompt_version,
+                'updated_at':now.isoformat(),'model_config':model_config,'prompt_id':prompt_id,
+                'prompt_version':prompt_version,'prompt_sha256':prompt_sha256,
+                'skill_versions':skill_versions or {},
                 'claims':[],'calculation_ids':[],'scenario_ids':[],'model_calls':0,'node_retries':{},
                 'report_ready':False,
             }

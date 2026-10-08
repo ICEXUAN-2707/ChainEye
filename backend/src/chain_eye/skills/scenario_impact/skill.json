@@ -1,0 +1,13 @@
+{
+  "id": "scenario_impact",
+  "version": "1",
+  "description": "Execute and validate an explicitly acknowledged deterministic scenario.",
+  "instructions_path": "SKILL.md",
+  "instructions_sha256": "99ec891cffdfd384ba50dbd98dfeea28b39f1c744ecadcb724aee2d01faf7802",
+  "allowed_tools": ["get_facts", "get_evidence", "compute_scenario", "validate_claims"],
+  "prompt_version": null,
+  "input_requirements": ["immutable dataset version", "verified revenue and cost baseline", "acknowledged assumptions"],
+  "output_constraints": ["preserve assumption identity", "preserve calculation identity", "do not present scenario as actual net profit"],
+  "timeout_seconds": 600,
+  "max_model_calls": 0
+}

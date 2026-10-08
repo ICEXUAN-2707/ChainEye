@@ -1,0 +1,13 @@
+{
+  "id": "financial_diagnosis",
+  "version": "1",
+  "description": "Read verified facts and execute deterministic financial formulas.",
+  "instructions_path": "SKILL.md",
+  "instructions_sha256": "33b3c76ee2a1aad43d988ef47c396cf5a27ed38f6fc7dcae2e7e4d4c24ebe071",
+  "allowed_tools": ["get_facts", "compute_financials"],
+  "prompt_version": null,
+  "input_requirements": ["immutable dataset version", "exact fact revisions", "requested metric IDs"],
+  "output_constraints": ["program-computed values only", "missing inputs remain not computable", "no model-authored arithmetic"],
+  "timeout_seconds": 600,
+  "max_model_calls": 0
+}

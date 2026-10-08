@@ -79,12 +79,19 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(run.status,'completed');self.assertTrue(run.report_ready);self.assertEqual(run.current_node,'report')
         self.assertEqual(len(record['calculation_ids']),6);self.assertEqual(record['claims'][0]['review_status'],'pending')
         self.assertEqual(record['prompt_version'],PROMPT_VERSION);self.assertEqual(llm.prompt_versions,[PROMPT_VERSION])
+        self.assertEqual(record['prompt_id'],'claims');self.assertEqual(len(record['prompt_sha256']),64)
+        self.assertEqual(set(record['skill_versions']),{'financial_diagnosis','evidence_bound_research','scenario_impact'})
         self.assertIn('verified Fact.value',llm.system_prompts[0])
         events,after,more=self.repo.list_run_events(run.id,0,200)
         self.assertEqual([event.seq for event in events],list(range(1,len(events)+1)));self.assertEqual(after,len(events));self.assertFalse(more)
         tools={event.payload['tool_name'] for event in events if event.type=='tool_call'}
         self.assertEqual(tools,TOOL_NAMES-{'compute_scenario'})
         self.assertTrue(all(event.payload.get('input_sha256') for event in events if event.type=='tool_call'))
+        skills={event.payload['skill_id'] for event in events if event.type=='tool_call'}
+        self.assertEqual(skills,{'financial_diagnosis','evidence_bound_research'})
+        llm_event=next(event for event in events if event.type=='llm_call' and event.payload['status']=='completed')
+        self.assertEqual(llm_event.payload['skill_id'],'evidence_bound_research')
+        self.assertEqual(llm_event.payload['prompt_sha256'],record['prompt_sha256'])
 
     def test_numeric_claim_without_references_is_downgraded(self):
         _,run,record=self.execute(FakeLLM(unsupported=True))
@@ -134,6 +141,9 @@ class R4Runs(unittest.TestCase):
         resume=ResumeRequest.model_validate({'expected_run_status':'waiting_review','dataset_version':1,'assumptions':{'cost_exposure':'0.1','effective_price_shock':'-0.2','customer_pass_through':'0.5','basis':'user_assumption','acknowledged':True}})
         service.resume(run.id,resume);self.repo.claim_next_run();service.execute(run.id)
         record=self.repo.get_run_record(run.id);self.assertEqual(record['status'],'completed');self.assertEqual(len(record['scenario_ids']),1);self.assertEqual(len(record['calculation_ids']),15)
+        events,_,_=self.repo.list_run_events(run.id,0,200)
+        scenario_call=next(event for event in events if event.type=='tool_call' and event.payload['tool_name']=='compute_scenario')
+        self.assertEqual(scenario_call.payload['skill_id'],'scenario_impact')
         scenario_claim=next(item for item in record['claims'] if item['id'].startswith('scenario-'))
         self.assertEqual(set(scenario_claim['calculation_ids']),set(record['calculation_ids'][-9:]))
         self.assertEqual(scenario_claim['assumption_ids'],record['assumption_ids']);self.assertEqual(scenario_claim['review_status'],'pending')
