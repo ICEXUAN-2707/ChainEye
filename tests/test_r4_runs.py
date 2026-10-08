@@ -4,6 +4,7 @@ import tempfile
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -16,6 +17,10 @@ from chain_eye.api.dto import RunCreate
 from chain_eye.application.errors import AppError
 from chain_eye.application.run_tools import RunTools,TOOL_NAMES,ToolFailure
 from chain_eye.application.runs import PROMPT_VERSION,RunExecutionService
+from chain_eye.prompts.registry import DEFAULT_PROMPT_REGISTRY,PromptRegistry,PromptSpec,content_sha256
+from chain_eye.skills.registry import DEFAULT_SKILL_REGISTRY,SkillRegistry
+from chain_eye.skills.runtime import SkillPolicyError
+from chain_eye.tools.registry import DEFAULT_TOOL_REGISTRY,ToolRegistry
 from chain_eye.ports.services import LLMResponse
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -23,16 +28,21 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class FakeLLM:
     provider='fake';model='fake-r4'
-    public_config={'provider':'fake','model':'fake-r4','response_format':'json_object'}
-    def __init__(self,failures=None,unsupported=False,empty=False,counter_evidence_id=None,evidence_id=None,text_override=None,claim_kind='calculation',use_calculation=True):
+    adapter_version='fake-adapter-v1';endpoint='fake://local';timeout_seconds=60
+    def __init__(self,failures=None,unsupported=False,empty=False,counter_evidence_id=None,evidence_id=None,text_override=None,claim_kind='calculation',use_calculation=True,model=None,response_model=None):
         self.failures=list(failures or []);self.unsupported=unsupported;self.empty=empty
         self.counter_evidence_id=counter_evidence_id;self.evidence_id=evidence_id;self.text_override=text_override
         self.claim_kind=claim_kind;self.use_calculation=use_calculation;self.calls=[];self.prompt_versions=[];self.system_prompts=[]
+        self.model=model or type(self).model;self.response_model=response_model or self.model
+        self.public_config={
+            'provider':self.provider,'model':self.model,'adapter_version':self.adapter_version,
+            'endpoint':self.endpoint,'response_format':'json_object','timeout_seconds':self.timeout_seconds,
+        }
     def generate(self,task_name,prompt_version,messages,response_schema,budget):
         payload=json.loads(messages[-1]['content']);question=payload['question'];context=payload['context']
         self.calls.append((question,context));self.prompt_versions.append(prompt_version);self.system_prompts.append(messages[0]['content'])
         if self.failures:raise self.failures.pop(0)
-        if self.empty:return LLMResponse({'claims':[]},self.provider,self.model,{'total_tokens':1},1,'fake-empty',None)
+        if self.empty:return LLMResponse({'claims':[]},self.provider,self.response_model,{'total_tokens':1},1,'fake-empty',None)
         evidence=[self.evidence_id] if self.evidence_id else context['allowed_evidence_ids'][:1]
         calculations=context['allowed_calculation_ids'][:1] if self.use_calculation else []
         calculation=next((item for item in context['calculations'] if item and calculations and item['id']==calculations[0]),None)
@@ -43,7 +53,7 @@ class FakeLLM:
             'counter_evidence_ids':[self.counter_evidence_id] if self.counter_evidence_id else [],
             'limitations':['仅基于绑定的数据快照'],'review_status':'pending',
         }
-        return LLMResponse({'claims':[claim]},self.provider,self.model,{'total_tokens':10},2,'fake-request',None)
+        return LLMResponse({'claims':[claim]},self.provider,self.response_model,{'total_tokens':10},2,'fake-request',None)
 
 
 class InvalidLLM(FakeLLM):
@@ -74,17 +84,54 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(self.repo.claim_next_run(),run.id);service.execute(run.id)
         return service,self.repo.get_run(run.id),self.repo.get_run_record(run.id)
 
+    @staticmethod
+    def upgraded_registries(include_history=True,research_calls=12,research_timeout=600):
+        old_prompt=DEFAULT_PROMPT_REGISTRY.require('r4-claims-v3','claims')
+        upgraded_content=old_prompt.content+' Upgraded prompt marker.'
+        new_prompt=PromptSpec('claims','r4-claims-v4','claims/v4.md',content_sha256(upgraded_content),upgraded_content)
+        prompts=PromptRegistry([old_prompt,new_prompt] if include_history else [new_prompt])
+
+        old_skills=[DEFAULT_SKILL_REGISTRY.require(skill_id) for skill_id in sorted(DEFAULT_SKILL_REGISTRY.ids)]
+        new_skills=[]
+        for skill in old_skills:
+            updates={'version':'2'}
+            if skill.id=='evidence_bound_research':
+                updates.update(prompt_version='r4-claims-v4',max_model_calls=research_calls,timeout_seconds=research_timeout)
+            new_skills.append(replace(skill,**updates))
+        skill_specs=[*old_skills,*new_skills] if include_history else new_skills
+        skills=SkillRegistry(skill_specs,active_versions={skill.id:'2' for skill in new_skills})
+
+        old_tools=[DEFAULT_TOOL_REGISTRY.require(name) for name in sorted(DEFAULT_TOOL_REGISTRY.names)]
+        new_tools=[replace(spec,version='2') for spec in old_tools]
+        tool_specs=[*old_tools,*new_tools] if include_history else new_tools
+        tools=ToolRegistry(tool_specs,active_versions={spec.name:'2' for spec in new_tools})
+        return tools,prompts,skills
+
     def test_live_run_persists_supported_claims_calculations_and_events(self):
         llm=FakeLLM();_,run,record=self.execute(llm)
         self.assertEqual(run.status,'completed');self.assertTrue(run.report_ready);self.assertEqual(run.current_node,'report')
         self.assertEqual(len(record['calculation_ids']),6);self.assertEqual(record['claims'][0]['review_status'],'pending')
         self.assertEqual(record['prompt_version'],PROMPT_VERSION);self.assertEqual(llm.prompt_versions,[PROMPT_VERSION])
+        self.assertEqual(record['prompt_id'],'claims');self.assertEqual(len(record['prompt_sha256']),64)
+        self.assertEqual(set(record['skill_versions']),{'financial_diagnosis','evidence_bound_research','scenario_impact'})
+        self.assertEqual(record['execution_manifest']['schema_version'],'2')
+        self.assertEqual(len(record['execution_manifest_sha256']),64)
+        self.assertEqual(record['execution_manifest']['model']['model'],'fake-r4')
+        self.assertEqual(record['model_config'],record['execution_manifest']['model']['public_config'])
         self.assertIn('verified Fact.value',llm.system_prompts[0])
         events,after,more=self.repo.list_run_events(run.id,0,200)
         self.assertEqual([event.seq for event in events],list(range(1,len(events)+1)));self.assertEqual(after,len(events));self.assertFalse(more)
         tools={event.payload['tool_name'] for event in events if event.type=='tool_call'}
         self.assertEqual(tools,TOOL_NAMES-{'compute_scenario'})
         self.assertTrue(all(event.payload.get('input_sha256') for event in events if event.type=='tool_call'))
+        self.assertTrue(all(event.payload.get('tool_spec_sha256') for event in events if event.type=='tool_call'))
+        self.assertTrue(all(event.payload.get('tool_implementation_sha256') for event in events if event.type=='tool_call'))
+        skills={event.payload['skill_id'] for event in events if event.type=='tool_call'}
+        self.assertEqual(skills,{'financial_diagnosis','evidence_bound_research'})
+        llm_event=next(event for event in events if event.type=='llm_call' and event.payload['status']=='completed')
+        self.assertEqual(llm_event.payload['skill_id'],'evidence_bound_research')
+        self.assertEqual(llm_event.payload['prompt_sha256'],record['prompt_sha256'])
+        self.assertEqual(llm_event.payload['public_config_sha256'],record['execution_manifest']['model']['public_config_sha256'])
 
     def test_numeric_claim_without_references_is_downgraded(self):
         _,run,record=self.execute(FakeLLM(unsupported=True))
@@ -134,6 +181,9 @@ class R4Runs(unittest.TestCase):
         resume=ResumeRequest.model_validate({'expected_run_status':'waiting_review','dataset_version':1,'assumptions':{'cost_exposure':'0.1','effective_price_shock':'-0.2','customer_pass_through':'0.5','basis':'user_assumption','acknowledged':True}})
         service.resume(run.id,resume);self.repo.claim_next_run();service.execute(run.id)
         record=self.repo.get_run_record(run.id);self.assertEqual(record['status'],'completed');self.assertEqual(len(record['scenario_ids']),1);self.assertEqual(len(record['calculation_ids']),15)
+        events,_,_=self.repo.list_run_events(run.id,0,200)
+        scenario_call=next(event for event in events if event.type=='tool_call' and event.payload['tool_name']=='compute_scenario')
+        self.assertEqual(scenario_call.payload['skill_id'],'scenario_impact')
         scenario_claim=next(item for item in record['claims'] if item['id'].startswith('scenario-'))
         self.assertEqual(set(scenario_claim['calculation_ids']),set(record['calculation_ids'][-9:]))
         self.assertEqual(scenario_claim['assumption_ids'],record['assumption_ids']);self.assertEqual(scenario_claim['review_status'],'pending')
@@ -168,7 +218,123 @@ class R4Runs(unittest.TestCase):
         created,_=service.create_with_status(replay,'replay-key');self.repo.claim_next_run();service.execute(created.id)
         record=self.repo.get_run_record(created.id)
         self.assertEqual(record['status'],'completed');self.assertEqual(record['model_calls'],0);self.assertEqual(record['claims'],source_record['claims']);self.assertEqual(len(llm.calls),1)
+        self.assertEqual(record['execution_manifest'],source_record['execution_manifest'])
+        self.assertEqual(record['execution_manifest_sha256'],source_record['execution_manifest_sha256'])
         events,_,_=self.repo.list_run_events(created.id,0,100);self.assertFalse(any(event.type=='llm_call' for event in events))
+
+    def test_queued_run_uses_its_pinned_versions_after_registry_upgrade(self):
+        original=RunExecutionService(self.repo,FakeLLM());run,_=original.create_with_status(self.request(),'pinned-upgrade')
+        self.assertEqual(self.repo.claim_next_run(),run.id)
+        tools,prompts,skills=self.upgraded_registries(include_history=True)
+        llm=FakeLLM();upgraded=RunExecutionService(
+            self.repo,llm,tool_registry=tools,prompt_registry=prompts,skill_registry=skills,
+        );upgraded.execute(run.id)
+        record=self.repo.get_run_record(run.id);self.assertEqual(record['status'],'completed')
+        self.assertEqual(llm.prompt_versions,['r4-claims-v3'])
+        self.assertNotIn('Upgraded prompt marker.',llm.system_prompts[0])
+        events,_,_=self.repo.list_run_events(run.id,0,200)
+        tool_events=[event for event in events if event.type=='tool_call']
+        self.assertTrue(tool_events);self.assertEqual({event.payload['tool_version'] for event in tool_events},{'1'})
+        self.assertEqual({event.payload['skill_version'] for event in tool_events},{'1'})
+
+    def test_queued_live_run_rejects_changed_model_before_side_effects(self):
+        original=RunExecutionService(self.repo,FakeLLM(model='old-model'))
+        run,_=original.create_with_status(self.request(),'pinned-model')
+        self.assertEqual(self.repo.claim_next_run(),run.id)
+        new_llm=FakeLLM(model='new-model');upgraded=RunExecutionService(self.repo,new_llm)
+        upgraded.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'failed')
+        self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
+        self.assertEqual(record['calculation_ids'],[]);self.assertEqual(new_llm.calls,[])
+        events,_,_=self.repo.list_run_events(run.id,0,100)
+        self.assertFalse(any(event.type in {'tool_call','llm_call','calculation'} for event in events))
+
+    def test_replay_copies_source_model_provenance_without_using_current_model(self):
+        source_llm=FakeLLM(model='old-model');source_service,source,source_record=self.execute(source_llm,key='model-source')
+        replay_llm=FakeLLM(model='new-model');replay_service=RunExecutionService(self.repo,replay_llm)
+        request=self.request(question='回放模型来源',mode='replay',replay_run_id=source.id)
+        created,_=replay_service.create_with_status(request,'model-replay')
+        created_record=self.repo.get_run_record(created.id)
+        self.assertEqual(created_record['model_config'],source_record['model_config'])
+        self.assertEqual(created_record['execution_manifest'],source_record['execution_manifest'])
+        self.assertEqual(self.repo.claim_next_run(),created.id);replay_service.execute(created.id)
+        record=self.repo.get_run_record(created.id)
+        self.assertEqual(record['status'],'completed');self.assertEqual(record['model_calls'],0)
+        self.assertEqual(replay_llm.calls,[])
+
+    def test_model_response_provenance_mismatch_is_rejected(self):
+        llm=FakeLLM(model='bound-model',response_model='unexpected-model')
+        _,run,record=self.execute(llm,key='response-model-mismatch')
+        self.assertEqual(run.status,'partial')
+        self.assertEqual(record['error']['code'],'MODEL_PROVENANCE_MISMATCH')
+        self.assertEqual(record['claims'],[])
+        events,_,_=self.repo.list_run_events(run.id,0,200)
+        failed=next(event for event in events if event.type=='llm_call' and event.payload['status']=='failed')
+        self.assertEqual(failed.payload['error']['code'],'MODEL_PROVENANCE_MISMATCH')
+        self.assertEqual(failed.payload['error']['details']['expected_model'],'bound-model')
+        self.assertEqual(failed.payload['error']['details']['actual_model'],'unexpected-model')
+
+    def test_missing_historical_binding_fails_before_tools_calculations_or_model(self):
+        original=RunExecutionService(self.repo,FakeLLM());run,_=original.create_with_status(self.request(),'missing-history')
+        self.assertEqual(self.repo.claim_next_run(),run.id)
+        tools,prompts,skills=self.upgraded_registries(include_history=False)
+        llm=FakeLLM();upgraded=RunExecutionService(
+            self.repo,llm,tool_registry=tools,prompt_registry=prompts,skill_registry=skills,
+        );upgraded.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'failed');self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
+        self.assertEqual(record['calculation_ids'],[]);self.assertEqual(llm.calls,[])
+        events,_,_=self.repo.list_run_events(run.id,0,100)
+        self.assertFalse(any(event.type in {'tool_call','llm_call','calculation'} for event in events))
+
+    def test_same_prompt_version_with_changed_content_fails_closed(self):
+        original=RunExecutionService(self.repo,FakeLLM());run,_=original.create_with_status(self.request(),'prompt-hash-change')
+        self.assertEqual(self.repo.claim_next_run(),run.id)
+        old=DEFAULT_PROMPT_REGISTRY.require('r4-claims-v3','claims');changed=old.content+' changed'
+        prompts=PromptRegistry([PromptSpec(old.id,old.version,old.path,content_sha256(changed),changed)])
+        llm=FakeLLM();service=RunExecutionService(self.repo,llm,prompt_registry=prompts);service.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'failed');self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
+        self.assertEqual(llm.calls,[]);self.assertEqual(record['calculation_ids'],[])
+
+    def test_legacy_run_without_execution_manifest_cannot_execute_or_replay(self):
+        service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(),'legacy-run')
+        self.repo.update_run(run.id,execution_manifest=None,execution_manifest_sha256=None)
+        self.assertEqual(self.repo.claim_next_run(),run.id);service.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'failed');self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
+        self.repo.update_run(run.id,status='partial')
+        replay=self.request(question='回放旧 Run',mode='replay',replay_run_id=run.id)
+        with self.assertRaises(AppError) as caught:service.create_with_status(replay,'legacy-replay')
+        self.assertEqual(caught.exception.code,'EXECUTION_VERSION_UNAVAILABLE')
+
+    def test_research_zero_model_budget_prevents_model_call(self):
+        research=replace(DEFAULT_SKILL_REGISTRY.require('evidence_bound_research'),max_model_calls=0)
+        others=[DEFAULT_SKILL_REGISTRY.require('financial_diagnosis'),DEFAULT_SKILL_REGISTRY.require('scenario_impact')]
+        skills=SkillRegistry([*others,research])
+        llm=FakeLLM();service=RunExecutionService(self.repo,llm,skill_registry=skills)
+        run,_=service.create_with_status(self.request(),'zero-model-budget');self.repo.claim_next_run();service.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'partial');self.assertEqual(record['error']['code'],'SKILL_BUDGET_EXCEEDED')
+        self.assertEqual(record['model_calls'],0);self.assertEqual(record['skill_model_calls'],{});self.assertEqual(llm.calls,[])
+
+    def test_skill_deadline_stops_research_before_model_call(self):
+        class ToggleClock:
+            def __init__(self):self.expired=False
+            def __call__(self):return 2 if self.expired else 0
+        clock=ToggleClock();original_evidence=self.repo.evidence_for_snapshot
+        def expire_during_research(*args):
+            result=original_evidence(*args);clock.expired=True;return result
+        research=replace(DEFAULT_SKILL_REGISTRY.require('evidence_bound_research'),timeout_seconds=1)
+        others=[DEFAULT_SKILL_REGISTRY.require('financial_diagnosis'),DEFAULT_SKILL_REGISTRY.require('scenario_impact')]
+        skills=SkillRegistry([*others,research]);llm=FakeLLM()
+        service=RunExecutionService(self.repo,llm,clock=clock,skill_registry=skills)
+        run,_=service.create_with_status(self.request(),'skill-timeout');self.repo.claim_next_run()
+        with patch.object(self.repo,'evidence_for_snapshot',side_effect=expire_during_research):service.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'partial');self.assertEqual(record['error']['code'],'SKILL_BUDGET_EXCEEDED')
+        self.assertEqual(llm.calls,[])
 
     def test_replay_rejects_other_snapshot(self):
         service,source,_=self.execute(key='source-snapshot')
@@ -242,6 +408,20 @@ class R4Runs(unittest.TestCase):
         ticks=iter((0,91,91))
         tools=RunTools(self.repo,Financial(),None,'run','demo-catl-2025',1,clock=lambda:next(ticks))
         with self.assertRaises(ToolFailure):
+            tools.call('compute_financials',{'fact_ids':[],'revisions':{},'metric_ids':[]})
+        self.assertEqual(calls,[])
+
+    def test_skill_deadline_is_stricter_than_tool_deadline(self):
+        calls=[]
+        class Financial:
+            def compute(self,*args):calls.append(args);return []
+        ticks=iter((0,2,2))
+        skill=DEFAULT_SKILL_REGISTRY.require('financial_diagnosis')
+        tools=RunTools(
+            self.repo,Financial(),None,'run','demo-catl-2025',1,clock=lambda:next(ticks),
+            skill=skill,deadline=1,
+        )
+        with self.assertRaises(SkillPolicyError):
             tools.call('compute_financials',{'fact_ids':[],'revisions':{},'metric_ids':[]})
         self.assertEqual(calls,[])
 

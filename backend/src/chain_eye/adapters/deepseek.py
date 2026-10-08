@@ -15,6 +15,7 @@ ModelFailure=TypedProviderError
 
 class DeepSeekAdapter:
     provider='deepseek'
+    adapter_version='deepseek-chat-completions-v1'
     endpoint='https://api.deepseek.com/chat/completions'
 
     def __init__(self,api_key=None,model=None,timeout_seconds=60):
@@ -24,7 +25,10 @@ class DeepSeekAdapter:
 
     @property
     def public_config(self):
-        return {'provider':self.provider,'model':self.model,'response_format':'json_object','timeout_seconds':self.timeout_seconds}
+        return {
+            'provider':self.provider,'model':self.model,'adapter_version':self.adapter_version,
+            'endpoint':self.endpoint,'response_format':'json_object','timeout_seconds':self.timeout_seconds,
+        }
 
     def generate(self,task_name,prompt_version,messages,response_schema,budget):
         if not self._api_key:raise ModelUnavailable('DEEPSEEK_API_KEY is not configured')
