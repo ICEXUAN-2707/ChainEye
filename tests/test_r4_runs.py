@@ -28,16 +28,21 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class FakeLLM:
     provider='fake';model='fake-r4'
-    public_config={'provider':'fake','model':'fake-r4','response_format':'json_object'}
-    def __init__(self,failures=None,unsupported=False,empty=False,counter_evidence_id=None,evidence_id=None,text_override=None,claim_kind='calculation',use_calculation=True):
+    adapter_version='fake-adapter-v1';endpoint='fake://local';timeout_seconds=60
+    def __init__(self,failures=None,unsupported=False,empty=False,counter_evidence_id=None,evidence_id=None,text_override=None,claim_kind='calculation',use_calculation=True,model=None,response_model=None):
         self.failures=list(failures or []);self.unsupported=unsupported;self.empty=empty
         self.counter_evidence_id=counter_evidence_id;self.evidence_id=evidence_id;self.text_override=text_override
         self.claim_kind=claim_kind;self.use_calculation=use_calculation;self.calls=[];self.prompt_versions=[];self.system_prompts=[]
+        self.model=model or type(self).model;self.response_model=response_model or self.model
+        self.public_config={
+            'provider':self.provider,'model':self.model,'adapter_version':self.adapter_version,
+            'endpoint':self.endpoint,'response_format':'json_object','timeout_seconds':self.timeout_seconds,
+        }
     def generate(self,task_name,prompt_version,messages,response_schema,budget):
         payload=json.loads(messages[-1]['content']);question=payload['question'];context=payload['context']
         self.calls.append((question,context));self.prompt_versions.append(prompt_version);self.system_prompts.append(messages[0]['content'])
         if self.failures:raise self.failures.pop(0)
-        if self.empty:return LLMResponse({'claims':[]},self.provider,self.model,{'total_tokens':1},1,'fake-empty',None)
+        if self.empty:return LLMResponse({'claims':[]},self.provider,self.response_model,{'total_tokens':1},1,'fake-empty',None)
         evidence=[self.evidence_id] if self.evidence_id else context['allowed_evidence_ids'][:1]
         calculations=context['allowed_calculation_ids'][:1] if self.use_calculation else []
         calculation=next((item for item in context['calculations'] if item and calculations and item['id']==calculations[0]),None)
@@ -48,7 +53,7 @@ class FakeLLM:
             'counter_evidence_ids':[self.counter_evidence_id] if self.counter_evidence_id else [],
             'limitations':['仅基于绑定的数据快照'],'review_status':'pending',
         }
-        return LLMResponse({'claims':[claim]},self.provider,self.model,{'total_tokens':10},2,'fake-request',None)
+        return LLMResponse({'claims':[claim]},self.provider,self.response_model,{'total_tokens':10},2,'fake-request',None)
 
 
 class InvalidLLM(FakeLLM):
@@ -109,8 +114,10 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(record['prompt_version'],PROMPT_VERSION);self.assertEqual(llm.prompt_versions,[PROMPT_VERSION])
         self.assertEqual(record['prompt_id'],'claims');self.assertEqual(len(record['prompt_sha256']),64)
         self.assertEqual(set(record['skill_versions']),{'financial_diagnosis','evidence_bound_research','scenario_impact'})
-        self.assertEqual(record['execution_manifest']['schema_version'],'1')
+        self.assertEqual(record['execution_manifest']['schema_version'],'2')
         self.assertEqual(len(record['execution_manifest_sha256']),64)
+        self.assertEqual(record['execution_manifest']['model']['model'],'fake-r4')
+        self.assertEqual(record['model_config'],record['execution_manifest']['model']['public_config'])
         self.assertIn('verified Fact.value',llm.system_prompts[0])
         events,after,more=self.repo.list_run_events(run.id,0,200)
         self.assertEqual([event.seq for event in events],list(range(1,len(events)+1)));self.assertEqual(after,len(events));self.assertFalse(more)
@@ -118,11 +125,13 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(tools,TOOL_NAMES-{'compute_scenario'})
         self.assertTrue(all(event.payload.get('input_sha256') for event in events if event.type=='tool_call'))
         self.assertTrue(all(event.payload.get('tool_spec_sha256') for event in events if event.type=='tool_call'))
+        self.assertTrue(all(event.payload.get('tool_implementation_sha256') for event in events if event.type=='tool_call'))
         skills={event.payload['skill_id'] for event in events if event.type=='tool_call'}
         self.assertEqual(skills,{'financial_diagnosis','evidence_bound_research'})
         llm_event=next(event for event in events if event.type=='llm_call' and event.payload['status']=='completed')
         self.assertEqual(llm_event.payload['skill_id'],'evidence_bound_research')
         self.assertEqual(llm_event.payload['prompt_sha256'],record['prompt_sha256'])
+        self.assertEqual(llm_event.payload['public_config_sha256'],record['execution_manifest']['model']['public_config_sha256'])
 
     def test_numeric_claim_without_references_is_downgraded(self):
         _,run,record=self.execute(FakeLLM(unsupported=True))
@@ -227,6 +236,44 @@ class R4Runs(unittest.TestCase):
         tool_events=[event for event in events if event.type=='tool_call']
         self.assertTrue(tool_events);self.assertEqual({event.payload['tool_version'] for event in tool_events},{'1'})
         self.assertEqual({event.payload['skill_version'] for event in tool_events},{'1'})
+
+    def test_queued_live_run_rejects_changed_model_before_side_effects(self):
+        original=RunExecutionService(self.repo,FakeLLM(model='old-model'))
+        run,_=original.create_with_status(self.request(),'pinned-model')
+        self.assertEqual(self.repo.claim_next_run(),run.id)
+        new_llm=FakeLLM(model='new-model');upgraded=RunExecutionService(self.repo,new_llm)
+        upgraded.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'failed')
+        self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
+        self.assertEqual(record['calculation_ids'],[]);self.assertEqual(new_llm.calls,[])
+        events,_,_=self.repo.list_run_events(run.id,0,100)
+        self.assertFalse(any(event.type in {'tool_call','llm_call','calculation'} for event in events))
+
+    def test_replay_copies_source_model_provenance_without_using_current_model(self):
+        source_llm=FakeLLM(model='old-model');source_service,source,source_record=self.execute(source_llm,key='model-source')
+        replay_llm=FakeLLM(model='new-model');replay_service=RunExecutionService(self.repo,replay_llm)
+        request=self.request(question='回放模型来源',mode='replay',replay_run_id=source.id)
+        created,_=replay_service.create_with_status(request,'model-replay')
+        created_record=self.repo.get_run_record(created.id)
+        self.assertEqual(created_record['model_config'],source_record['model_config'])
+        self.assertEqual(created_record['execution_manifest'],source_record['execution_manifest'])
+        self.assertEqual(self.repo.claim_next_run(),created.id);replay_service.execute(created.id)
+        record=self.repo.get_run_record(created.id)
+        self.assertEqual(record['status'],'completed');self.assertEqual(record['model_calls'],0)
+        self.assertEqual(replay_llm.calls,[])
+
+    def test_model_response_provenance_mismatch_is_rejected(self):
+        llm=FakeLLM(model='bound-model',response_model='unexpected-model')
+        _,run,record=self.execute(llm,key='response-model-mismatch')
+        self.assertEqual(run.status,'partial')
+        self.assertEqual(record['error']['code'],'MODEL_PROVENANCE_MISMATCH')
+        self.assertEqual(record['claims'],[])
+        events,_,_=self.repo.list_run_events(run.id,0,200)
+        failed=next(event for event in events if event.type=='llm_call' and event.payload['status']=='failed')
+        self.assertEqual(failed.payload['error']['code'],'MODEL_PROVENANCE_MISMATCH')
+        self.assertEqual(failed.payload['error']['details']['expected_model'],'bound-model')
+        self.assertEqual(failed.payload['error']['details']['actual_model'],'unexpected-model')
 
     def test_missing_historical_binding_fails_before_tools_calculations_or_model(self):
         original=RunExecutionService(self.repo,FakeLLM());run,_=original.create_with_status(self.request(),'missing-history')

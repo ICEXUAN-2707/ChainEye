@@ -1,5 +1,6 @@
 """Typed metadata and execution context shared by all agent tools."""
 import hashlib
+import inspect
 import json
 from dataclasses import dataclass,replace
 from typing import Callable,FrozenSet,Literal
@@ -12,6 +13,18 @@ class ToolFailure(RuntimeError):
     pass
 
 
+def _implementation_source(value):
+    try:
+        source=inspect.getsource(value)
+    except (OSError,TypeError) as exc:
+        name=getattr(value,'__qualname__',getattr(value,'__name__',type(value).__name__))
+        raise ValueError(f'tool implementation source is unavailable: {name}') from exc
+    return {
+        'identity':f"{getattr(value,'__module__','')}:{getattr(value,'__qualname__',getattr(value,'__name__',''))}",
+        'source':source.replace('\r\n','\n'),
+    }
+
+
 @dataclass(frozen=True)
 class ToolSpec:
     name:str
@@ -21,13 +34,24 @@ class ToolSpec:
     timeout_seconds:int
     side_effect:Literal['read','deterministic_write']
     handler:ToolHandler
+    implementation_id:str=''
+    implementation_dependencies:tuple[object,...]=()
+
+    @property
+    def implementation_sha256(self):
+        canonical=json.dumps(
+            [_implementation_source(self.handler),*(_implementation_source(item) for item in self.implementation_dependencies)],
+            ensure_ascii=False,sort_keys=True,separators=(',',':'),
+        )
+        return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 
     @property
     def spec_sha256(self):
         canonical=json.dumps({
             'name':self.name,'version':self.version,'description':self.description,
             'allowed_callers':sorted(self.allowed_callers),'timeout_seconds':self.timeout_seconds,
-            'side_effect':self.side_effect,
+            'side_effect':self.side_effect,'implementation_id':self.implementation_id,
+            'implementation_sha256':self.implementation_sha256,
         },ensure_ascii=False,sort_keys=True,separators=(',',':'))
         return hashlib.sha256(canonical.encode('utf-8')).hexdigest()
 

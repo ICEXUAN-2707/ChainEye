@@ -43,6 +43,10 @@ class LLMResponse:
 
 
 class LLMPort(Protocol):
+    provider:str
+    model:str
+    public_config:dict[str,Any]
+
     def generate(
         self,task_name:str,prompt_version:str,messages:list[dict[str,str]],
         response_schema:dict[str,Any],budget:dict[str,Any],

@@ -25,7 +25,10 @@ ROOT=Path(__file__).resolve().parents[1]
 
 class ReportLLM:
     provider='fake';model='fake-r5'
-    public_config={'provider':'fake','model':'fake-r5','response_format':'json_object'}
+    public_config={
+        'provider':'fake','model':'fake-r5','adapter_version':'fake-report-adapter-v1',
+        'endpoint':'fake://report','response_format':'json_object','timeout_seconds':60,
+    }
 
     def generate(self,task_name,prompt_version,messages,response_schema,budget):
         context=json.loads(messages[-1]['content'])['context']

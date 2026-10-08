@@ -12,7 +12,8 @@ from chain_eye.application.errors import AppError
 from chain_eye.application.financials import FinancialService
 from chain_eye.application.reports import ReportService
 from chain_eye.application.run_manifest import (
-    ExecutionManifestError,build_execution_manifest,manifest_sha256,resolve_execution_manifest,
+    ExecutionManifestError,build_execution_manifest,manifest_sha256,normalize_model_config,
+    resolve_execution_manifest,
 )
 from chain_eye.application.run_tools import RunTools
 from chain_eye.application.scenarios import ScenarioExecutionService
@@ -75,6 +76,8 @@ class RunExecutionService:
         tool_registry=None,prompt_registry=None,skill_registry=None,
     ):
         self.repository=repository;self.llm=llm;self.clock=clock
+        try:self.model_config=normalize_model_config(getattr(self.llm,'public_config',None))
+        except ExecutionManifestError as exc:raise ValueError('LLM adapter must expose a complete safe public_config') from exc
         self.financials=FinancialService(repository);self.scenarios=ScenarioExecutionService(repository)
         self.reports=ReportService(repository)
         self.skill_runtime=SkillRuntimeGuard(clock)
@@ -95,15 +98,16 @@ class RunExecutionService:
 
     def create_with_status(self,request:RunCreate,idempotency_key:str):
         source=self._validate_replay(request) if request.mode=='replay' else None
-        config=getattr(self.llm,'public_config',{'provider':'test','model':'injected','response_format':'json_object'})
         try:
             skills=(self.financial_skill,self.research_skill,self.scenario_skill)
             if source is None:
-                manifest=build_execution_manifest(self.claim_prompt,skills,self.tool_registry)
+                config=self.model_config
+                manifest=build_execution_manifest(self.claim_prompt,skills,self.tool_registry,config)
                 manifest_hash=manifest_sha256(manifest)
             else:
-                self._resolve_bindings(source)
+                source_bindings=self._resolve_bindings(source,verify_current_model=False)
                 manifest=source['execution_manifest'];manifest_hash=source['execution_manifest_sha256']
+                config=source_bindings.model['public_config']
             prompt_ref=manifest['prompt'];skill_refs=manifest['skills']
             return self.repository.create_run(
                 request,idempotency_key,config,prompt_ref['version'],
@@ -128,12 +132,16 @@ class RunExecutionService:
             )
         return source
 
-    def _resolve_bindings(self,record):
+    def _resolve_bindings(self,record,verify_current_model):
         try:
-            return resolve_execution_manifest(
+            bindings=resolve_execution_manifest(
                 record.get('execution_manifest'),record.get('execution_manifest_sha256'),
                 self.prompt_registry,self.skill_registry,self.tool_registry,
+                self.model_config if verify_current_model else None,
             )
+            if record.get('model_config')!=bindings.model['public_config']:
+                raise ExecutionManifestError('persisted model configuration does not match the execution manifest')
+            return bindings
         except ExecutionManifestError as exc:
             raise AppError(
                 'EXECUTION_VERSION_UNAVAILABLE','Run 创建时绑定的 Agent 资源不可用或不一致',409,
@@ -161,7 +169,7 @@ class RunExecutionService:
         if record is None or record['status']!='running':return
         started=self.clock()
         try:
-            bindings=self._resolve_bindings(record)
+            bindings=self._resolve_bindings(record,verify_current_model=record['mode']!='replay')
             if record['mode']=='replay':self._execute_replay(record,bindings);return
             self._execute_live(record,started,bindings)
         except TypedProviderError as exc:
@@ -204,7 +212,7 @@ class RunExecutionService:
         run_id=record['id'];request=RunCreate.model_validate(record['request'])
         financial_skill=bindings.skills['financial_diagnosis']
         research_skill=bindings.skills['evidence_bound_research']
-        scenario_skill=bindings.skills['scenario_impact'];claim_prompt=bindings.prompt
+        scenario_skill=bindings.skills['scenario_impact'];claim_prompt=bindings.prompt;model_binding=bindings.model
         tools=RunTools(
             self.repository,self.financials,self.scenarios,run_id,
             record['dataset_id'],record['dataset_version'],clock=self.clock,registry=self.tool_registry,
@@ -224,9 +232,17 @@ class RunExecutionService:
                 for skill in (financial_skill,research_skill,scenario_skill)
             ],
             'tools':[
-                {'name':spec.name,'version':spec.version,'spec_sha256':spec.spec_sha256}
+                {
+                    'name':spec.name,'version':spec.version,'spec_sha256':spec.spec_sha256,
+                    'implementation_id':spec.implementation_id,
+                    'implementation_sha256':spec.implementation_sha256,
+                }
                 for spec in sorted(bindings.tools.values(),key=lambda item:item.name)
             ],
+            'model':{
+                key:model_binding[key]
+                for key in ('provider','model','adapter_version','endpoint','public_config_sha256')
+            },
         })
         self._budget(started,record)
 
@@ -323,14 +339,38 @@ class RunExecutionService:
                     );break
                 except TypedProviderError as exc:
                     self.repository.append_event(run_id,'llm_call','research',{
-                        'status':'failed','provider':getattr(self.llm,'provider','unknown'),
-                        'model':getattr(self.llm,'model','unknown'),'skill_id':research_skill.id,
+                        'status':'failed','provider':model_binding['provider'],
+                        'model':model_binding['model'],'adapter_version':model_binding['adapter_version'],
+                        'endpoint':model_binding['endpoint'],'public_config_sha256':model_binding['public_config_sha256'],
+                        'skill_id':research_skill.id,
                         'skill_version':research_skill.version,'skill_spec_sha256':research_skill.spec_sha256,
                         'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
                         'prompt_sha256':claim_prompt.sha256,
                         'attempt':attempt+1,'error':{'code':exc.code,'message':str(exc),'retryable':exc.retryable},
                     })
                     if not exc.retryable or attempt==MAX_NODE_RETRIES:raise
+            if generation.provider!=model_binding['provider'] or generation.model!=model_binding['model']:
+                details={
+                    'expected_provider':model_binding['provider'],'expected_model':model_binding['model'],
+                    'actual_provider':generation.provider,'actual_model':generation.model,
+                }
+                self.repository.append_event(run_id,'llm_call','research',{
+                    'status':'failed','provider':generation.provider,'model':generation.model,
+                    'adapter_version':model_binding['adapter_version'],'endpoint':model_binding['endpoint'],
+                    'public_config_sha256':model_binding['public_config_sha256'],
+                    'skill_id':research_skill.id,'skill_version':research_skill.version,
+                    'skill_spec_sha256':research_skill.spec_sha256,
+                    'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
+                    'prompt_sha256':claim_prompt.sha256,'error':{
+                        'code':'MODEL_PROVENANCE_MISMATCH',
+                        'message':'model response provenance does not match the Run binding',
+                        'retryable':False,'details':details,
+                    },
+                })
+                raise AppError(
+                    'MODEL_PROVENANCE_MISMATCH','模型响应来源与 Run 固化绑定不一致',409,
+                    details=details,
+                )
             raw_claims=generation.output.get('claims') if isinstance(generation.output,dict) else None
             if not isinstance(raw_claims,list) or not 1<=len(raw_claims)<=3:
                 raise ModelInvalidResponse('model must return from one to three claims')
@@ -338,6 +378,8 @@ class RunExecutionService:
             record=self.repository.update_run(run_id,claims=candidate_claims) or record
             self.repository.append_event(run_id,'llm_call','research',{
                 'status':'completed','provider':generation.provider,'model':generation.model,
+                'adapter_version':model_binding['adapter_version'],'endpoint':model_binding['endpoint'],
+                'public_config_sha256':model_binding['public_config_sha256'],
                 'skill_id':research_skill.id,'skill_version':research_skill.version,
                 'skill_spec_sha256':research_skill.spec_sha256,
                 'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
@@ -425,7 +467,7 @@ class RunExecutionService:
     def _execute_replay(self,record,bindings):
         source=self.repository.get_run_record(record['request']['replay_run_id'])
         if source is None:raise AppError('NOT_FOUND','回放源 Run 不存在',404)
-        source_bindings=self._resolve_bindings(source)
+        source_bindings=self._resolve_bindings(source,verify_current_model=False)
         if source_bindings.sha256!=bindings.sha256:
             raise AppError('EXECUTION_VERSION_UNAVAILABLE','回放 Run 与源 Run 的执行版本清单不一致',409)
         self.repository.append_event(record['id'],'node_status','plan',{

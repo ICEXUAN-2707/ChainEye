@@ -26,7 +26,7 @@ class AgentRegistries(unittest.TestCase):
         with self.assertRaises(ValueError):ToolRegistry([])
 
     def test_tool_registry_rejects_duplicates_callers_and_skill_escape(self):
-        spec=ToolSpec('read','1','read',frozenset({'agent'}),1,'read',lambda context:None)
+        spec=ToolSpec('read','1','read',frozenset({'agent'}),1,'read',lambda context:None,'test.read.v1')
         with self.assertRaises(ValueError):ToolRegistry([spec,spec])
         context=ToolContext(None,None,None,'run','dataset',1,lambda:0)
         registry=ToolRegistry([spec])
@@ -47,6 +47,21 @@ class AgentRegistries(unittest.TestCase):
             old_skill.id,old_skill.version,old_skill.spec_sha256,old_skill.instructions_sha256,
         ).version,'1')
         with self.assertRaises(SkillRegistryError):skills.resolve(old_skill.id,'1','0'*64,old_skill.instructions_sha256)
+
+    def test_same_tool_version_with_changed_handler_fails_closed(self):
+        original=DEFAULT_TOOL_REGISTRY.require('get_facts')
+        def changed_handler(context,**arguments):
+            return []
+        changed=replace(original,handler=changed_handler)
+        self.assertEqual(changed.implementation_id,original.implementation_id)
+        self.assertNotEqual(changed.implementation_sha256,original.implementation_sha256)
+        self.assertNotEqual(changed.spec_sha256,original.spec_sha256)
+        registry=ToolRegistry([changed])
+        with self.assertRaises(ToolFailure):
+            registry.resolve(
+                original.name,original.version,original.spec_sha256,
+                original.implementation_id,original.implementation_sha256,
+            )
 
     def test_prompt_registry_loads_content_and_fails_closed_on_tamper(self):
         prompt=DEFAULT_PROMPT_REGISTRY.require('r4-claims-v3','claims')
