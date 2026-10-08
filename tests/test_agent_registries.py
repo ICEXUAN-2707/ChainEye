@@ -2,12 +2,14 @@ import json
 import shutil
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 
 from chain_eye.prompts import registry as prompt_module
 from chain_eye.prompts.registry import DEFAULT_PROMPT_REGISTRY,PromptRegistry,PromptRegistryError,content_sha256
 from chain_eye.skills import registry as skill_module
 from chain_eye.skills.registry import DEFAULT_SKILL_REGISTRY,SkillRegistry,SkillRegistryError
+from chain_eye.skills.runtime import SkillPolicyError,SkillRuntimeGuard
 from chain_eye.tools.registry import DEFAULT_TOOL_REGISTRY,TOOL_NAMES,ToolRegistry
 from chain_eye.tools.spec import ToolContext,ToolFailure,ToolSpec
 
@@ -30,6 +32,21 @@ class AgentRegistries(unittest.TestCase):
         registry=ToolRegistry([spec])
         with self.assertRaises(ToolFailure):registry.call('read',{},context,caller='mcp')
         with self.assertRaises(ToolFailure):registry.call('read',{},context,allowed_tools=frozenset())
+
+    def test_registries_resolve_historical_versions_and_exact_hashes(self):
+        old_tool=DEFAULT_TOOL_REGISTRY.require('get_facts');new_tool=replace(old_tool,version='2')
+        tools=ToolRegistry([old_tool,new_tool],active_versions={'get_facts':'2'})
+        self.assertEqual(tools.require('get_facts').version,'2')
+        self.assertEqual(tools.resolve('get_facts','1',old_tool.spec_sha256).version,'1')
+        with self.assertRaises(ToolFailure):tools.resolve('get_facts','1','0'*64)
+
+        old_skill=DEFAULT_SKILL_REGISTRY.require('financial_diagnosis');new_skill=replace(old_skill,version='2')
+        skills=SkillRegistry([old_skill,new_skill],active_versions={'financial_diagnosis':'2'})
+        self.assertEqual(skills.require('financial_diagnosis').version,'2')
+        self.assertEqual(skills.resolve(
+            old_skill.id,old_skill.version,old_skill.spec_sha256,old_skill.instructions_sha256,
+        ).version,'1')
+        with self.assertRaises(SkillRegistryError):skills.resolve(old_skill.id,'1','0'*64,old_skill.instructions_sha256)
 
     def test_prompt_registry_loads_content_and_fails_closed_on_tamper(self):
         prompt=DEFAULT_PROMPT_REGISTRY.require('r4-claims-v3','claims')
@@ -70,6 +87,20 @@ class AgentRegistries(unittest.TestCase):
             instructions=target/'financial_diagnosis'/'SKILL.md'
             instructions.write_text(instructions.read_text(encoding='utf-8')+'tampered',encoding='utf-8')
             with self.assertRaises(SkillRegistryError):SkillRegistry.from_directory(target)
+
+    def test_skill_runtime_rejects_missing_input_and_invalid_output(self):
+        research=DEFAULT_SKILL_REGISTRY.require('evidence_bound_research')
+        guard=SkillRuntimeGuard(lambda:0)
+        with self.assertRaises(SkillPolicyError) as missing:
+            guard.start(research,{'question':'研究','dataset_version':1,'verified_facts':[]},600)
+        self.assertEqual(missing.exception.code,'SKILL_INPUT_INVALID')
+        session=guard.start(research,{
+            'question':'研究','dataset_version':1,
+            'verified_facts':[type('FactLike',(),{'status':'verified'})()],
+        },600)
+        with self.assertRaises(SkillPolicyError) as invalid:
+            session.validate_output({'claims':[]})
+        self.assertEqual(invalid.exception.code,'SKILL_OUTPUT_INVALID')
 
 
 if __name__=='__main__':unittest.main()
