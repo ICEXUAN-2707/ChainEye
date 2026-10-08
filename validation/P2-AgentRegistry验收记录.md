@@ -11,7 +11,11 @@
 - `ToolSpec` 声明版本、调用方、单工具超时、副作用类型与 handler；Registry 拒绝重复、未知、调用方越权和 Skill allowlist 越权。
 - `r4-claims-v3` 从内联常量迁到版本化文件，manifest 固定 SHA256；加载时校验路径、内容和哈希。
 - `evidence_bound_research`、`financial_diagnosis`、`scenario_impact` 以可解析清单和指令文件加载；依赖的 Tool 与 Prompt 必须存在且哈希一致。
-- Run 运行时从 Skill 的 Prompt 引用加载实际 Prompt；Run 元数据、plan、tool_call 与 llm_call 事件记录对应版本和内容哈希。
+- Tool 与 Skill Registry 以 `(id/name, version)` 保存历史定义，并由 `active.json` 显式选择活动 Skill；同版本内容哈希不一致时拒绝解析。
+- 每个新建 Run 固化完整执行清单及清单哈希，包含 Prompt、三个 Skill 和全部 Tool 的版本与内容哈希；重放沿用来源 Run 的执行清单，不静默切换到当前活动版本。
+- Run 执行前解析并校验固化绑定；历史资源缺失、同版本内容变化或旧 Run 缺少执行清单时，以 `EXECUTION_VERSION_UNAVAILABLE` 失败，并且不进入 Tool、计算或模型调用。
+- Run 运行时只使用固化的 Prompt、Skill 与 Tool；Run 元数据、plan、tool_call 与 llm_call 事件记录对应版本和内容哈希。
+- 三个 Skill 增加机器可校验的输入/输出契约；运行时强制执行 Tool allowlist、总时限、模型调用次数及输出结构，且 Skill 时限与 Tool/模型共用同一时钟和截止时间。
 - HTTP 0.4.0 DTO、OpenAPI、数据库表结构、金额口径和前端业务实现未改变。
 
 ## 自动化结果
@@ -23,7 +27,7 @@ $env:PYTHONPATH="backend/src"
 .\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-结果：146 项通过，耗时 180.720 秒。
+结果：155 项通过，耗时 88.444 秒。新增覆盖历史版本保留与缺失、同版本篡改、旧 Run 拒绝执行、重放清单一致、`max_model_calls=0`、Skill 时限及 Skill/Tool 截止时间优先级。
 
 ```powershell
 .\.venv\Scripts\python.exe tools/verify_baseline.py
@@ -57,4 +61,5 @@ npm.cmd run build --prefix frontend
 - 未执行真实 DeepSeek 付费调用；本轮不以无密钥 smoke 替代 live 验收。
 - 浏览器可视验收不是本轮自动化结果，smoke 明确保留 `visual_browser_check=separate check`。
 - 另一位开发者独立复现、PR 互审和团队财务签核仍须由实际执行者确认，本记录不代签。
+- Phase 1 冻结状态仍为 `candidate_pending_manual`，正式冻结 SHA 与 `develop` 基线尚未由团队确认；因此 PR #19 当前目标分支为 `main` 的流程问题尚未关闭，本轮推送仅更新修复代码，不宣称可合并。
 - G3 显式 graph、G4 MCP MVP、G5 原生复现与结构化日志仍未实现，不能因 G2 通过而宣称 Agent Kernel 全部完成。
