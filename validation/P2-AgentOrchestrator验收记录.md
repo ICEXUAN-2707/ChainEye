@@ -23,7 +23,7 @@
 
 |检查|命令|真实结果|
 |---|---|---|
-|后端测试|`$env:PYTHONPATH='backend/src'; .\.venv\Scripts\python.exe -m unittest discover -s tests -v`|169 tests passed，耗时 180.184 秒|
+|后端测试|`$env:PYTHONPATH='backend/src'; .\.venv\Scripts\python.exe -m unittest discover -s tests -v`|169 tests passed，耗时 336.791 秒|
 |冻结基线|`$env:PYTHONPATH='backend/src'; .\.venv\Scripts\python.exe tools/verify_baseline.py`|PASS：30 fixture records、4 margin checks、文件哈希与契约引用|
 |契约生成与漂移|`tools/export_contracts.py`、`tools/generate_ts.py`、`git diff --exit-code -- contracts frontend/src/api/generated.ts`|通过；OpenAPI/schema 版本仍为 0.4.0，无生成物漂移|
 |前端依赖与构建|`npm.cmd ci --prefix frontend; npm.cmd run build --prefix frontend`|通过；28 tests passed，TypeScript 与 Vite build 成功|
