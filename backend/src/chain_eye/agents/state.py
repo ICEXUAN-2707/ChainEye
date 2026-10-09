@@ -30,4 +30,3 @@ class AgentState:
     def update_record(self,record):
         if record is not None:self.record=record
         return self.record
-

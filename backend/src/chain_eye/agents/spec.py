@@ -105,4 +105,3 @@ class GraphSpec:
 
     def export(self):
         return {**self.to_dict(),'spec_sha256':self.spec_sha256}
-
