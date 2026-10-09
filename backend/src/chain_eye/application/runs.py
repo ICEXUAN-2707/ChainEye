@@ -7,6 +7,10 @@ from decimal import Decimal,InvalidOperation
 
 from pydantic import ValidationError
 
+from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH
+from chain_eye.agents.orchestrator import AgentOrchestrator,NodeResult
+from chain_eye.agents.policy import MAX_MODEL_CALLS,MAX_NODE_RETRIES,RUN_BUDGET_SECONDS
+from chain_eye.agents.state import AgentState
 from chain_eye.api.dto import ResumeRequest,RunCreate
 from chain_eye.application.errors import AppError
 from chain_eye.application.financials import FinancialService
@@ -27,9 +31,6 @@ from chain_eye.skills.registry import DEFAULT_SKILL_REGISTRY
 from chain_eye.skills.runtime import SkillPolicyError,SkillRuntimeGuard
 from chain_eye.tools.registry import DEFAULT_TOOL_REGISTRY
 
-RUN_BUDGET_SECONDS=600
-MAX_MODEL_CALLS=12
-MAX_NODE_RETRIES=2
 PROMPT_VERSION='r4-claims-v3'
 SCENARIO_TERMS=('情景','敏感性','冲击','传导','假设','scenario','sensitivity','shock')
 PROMPT_SPEC=DEFAULT_PROMPT_REGISTRY.require(PROMPT_VERSION,'claims')
@@ -73,7 +74,7 @@ def _support_checked(claim,evidence_by_id,calculation_by_id,fact_numbers_by_evid
 class RunExecutionService:
     def __init__(
         self,repository,llm,clock=time.monotonic,
-        tool_registry=None,prompt_registry=None,skill_registry=None,
+        tool_registry=None,prompt_registry=None,skill_registry=None,graph=None,
     ):
         self.repository=repository;self.llm=llm;self.clock=clock
         try:self.model_config=normalize_model_config(getattr(self.llm,'public_config',None))
@@ -84,6 +85,8 @@ class RunExecutionService:
         self.tool_registry=tool_registry or DEFAULT_TOOL_REGISTRY
         self.prompt_registry=prompt_registry or DEFAULT_PROMPT_REGISTRY
         self.skill_registry=skill_registry or DEFAULT_SKILL_REGISTRY
+        self.graph=graph or DEFAULT_AGENT_GRAPH
+        self.orchestrator=AgentOrchestrator(self.graph,self.repository,self.clock)
         self.financial_skill=self.skill_registry.require('financial_diagnosis')
         self.research_skill=self.skill_registry.require('evidence_bound_research')
         self.scenario_skill=self.skill_registry.require('scenario_impact')
@@ -102,7 +105,7 @@ class RunExecutionService:
             skills=(self.financial_skill,self.research_skill,self.scenario_skill)
             if source is None:
                 config=self.model_config
-                manifest=build_execution_manifest(self.claim_prompt,skills,self.tool_registry,config)
+                manifest=build_execution_manifest(self.graph,self.claim_prompt,skills,self.tool_registry,config)
                 manifest_hash=manifest_sha256(manifest)
             else:
                 source_bindings=self._resolve_bindings(source,verify_current_model=False)
@@ -136,7 +139,7 @@ class RunExecutionService:
         try:
             bindings=resolve_execution_manifest(
                 record.get('execution_manifest'),record.get('execution_manifest_sha256'),
-                self.prompt_registry,self.skill_registry,self.tool_registry,
+                self.graph,self.prompt_registry,self.skill_registry,self.tool_registry,
                 self.model_config if verify_current_model else None,
             )
             if record.get('model_config')!=bindings.model['public_config']:
@@ -170,8 +173,7 @@ class RunExecutionService:
         started=self.clock()
         try:
             bindings=self._resolve_bindings(record,verify_current_model=record['mode']!='replay')
-            if record['mode']=='replay':self._execute_replay(record,bindings);return
-            self._execute_live(record,started,bindings)
+            self._execute_graph(record,started,bindings)
         except TypedProviderError as exc:
             self._finish_error(run_id,record,exc.code,str(exc),exc.retryable)
         except ValidationError as exc:
@@ -203,25 +205,45 @@ class RunExecutionService:
             node_retries={**record.get('node_retries',{}),'research':attempt},
         ) or record
 
-    def _node(self,record,node,status='started',details=None):
-        record=self.repository.update_run(record['id'],current_node=node) or record
-        self.repository.append_event(record['id'],'node_status',node,{'status':status,**(details or {})})
-        return record
+    def _execute_graph(self,record,started,bindings):
+        request=RunCreate.model_validate(record['request'])
+        state=AgentState(
+            run_id=record['id'],dataset_id=record['dataset_id'],
+            dataset_version=record['dataset_version'],mode=record['mode'],request=request,
+            record=record,bindings=bindings,started=started,
+            run_deadline=started+RUN_BUDGET_SECONDS,
+        )
+        state.artifacts['tools']=RunTools(
+            self.repository,self.financials,self.scenarios,state.run_id,
+            state.dataset_id,state.dataset_version,clock=self.clock,registry=self.tool_registry,
+            tool_specs=bindings.tools,
+        )
+        handlers={
+            'plan':self._run_plan,'extract':self._run_extract,
+            'validate':self._run_validate,'finance':self._run_finance,
+            'research':self._run_research,'scenario':self._run_scenario,
+            'verify':self._run_verify,'replay_validate':self._run_replay_validate,
+            'replay_copy':self._run_replay_copy,'report':self._run_report,
+        }
+        self.orchestrator.execute(state,handlers)
 
-    def _execute_live(self,record,started,bindings):
-        run_id=record['id'];request=RunCreate.model_validate(record['request'])
+    def _run_plan(self,state):
+        record=state.record;bindings=state.bindings
         financial_skill=bindings.skills['financial_diagnosis']
         research_skill=bindings.skills['evidence_bound_research']
         scenario_skill=bindings.skills['scenario_impact'];claim_prompt=bindings.prompt;model_binding=bindings.model
-        tools=RunTools(
-            self.repository,self.financials,self.scenarios,run_id,
-            record['dataset_id'],record['dataset_version'],clock=self.clock,registry=self.tool_registry,
-            tool_specs=bindings.tools,
+        self._budget(state.started,record)
+        plan=(
+            ['extract','validate','finance','research','scenario_if_requested','verify','report']
+            if state.mode=='live' else ['replay_validate','replay_copy','report_if_completed']
         )
-
-        record=self._node(record,'plan',details={
-            'plan':['extract','validate','finance','research','scenario_if_requested','verify','report'],
+        return NodeResult(condition=f'mode == {state.mode}',details={
+            'plan':plan,'mode':state.mode,
             'execution_manifest_sha256':bindings.sha256,
+            'graph':{
+                'id':bindings.graph.id,'version':bindings.graph.version,
+                'spec_sha256':bindings.graph.spec_sha256,
+            },
             'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
             'prompt_sha256':claim_prompt.sha256,
             'skills':[
@@ -244,16 +266,15 @@ class RunExecutionService:
                 for key in ('provider','model','adapter_version','endpoint','public_config_sha256')
             },
         })
-        self._budget(started,record)
 
-        run_deadline=started+RUN_BUDGET_SECONDS
+    def _run_extract(self,state):
+        record=state.record;request=state.request
+        financial_skill=state.bindings.skills['financial_diagnosis']
         financial_session=self.skill_runtime.start(financial_skill,{
             'dataset_id':record['dataset_id'],'dataset_version':record['dataset_version'],
             'requested_metric_ids':list(FINANCIAL_METRIC_IDS),
-        },run_deadline)
-        financial_tools=tools.for_skill(financial_skill,financial_session.deadline)
-
-        record=self._node(record,'extract')
+        },state.run_deadline)
+        financial_tools=state.artifacts['tools'].for_skill(financial_skill,financial_session.deadline)
         segment_fact_metrics=['revenue','cost_of_sales']
         group_fact_metrics=['revenue','cost_of_sales','inventory','accounts_receivable','parent_net_profit','parent_adjusted_net_profit']
         segment_facts=financial_tools.call('get_facts',{
@@ -265,9 +286,15 @@ class RunExecutionService:
             'metric_ids':group_fact_metrics,'segment':'group','period':None,
         })
         facts=[*segment_facts,*group_facts]
-        self.repository.append_event(run_id,'file_access','extract',{'dataset_id':record['dataset_id'],'dataset_version':record['dataset_version'],'fact_count':len(facts)})
+        self.repository.append_event(state.run_id,'file_access','extract',{'dataset_id':record['dataset_id'],'dataset_version':record['dataset_version'],'fact_count':len(facts)})
+        state.artifacts.update(
+            financial_session=financial_session,financial_tools=financial_tools,
+            segment_facts=segment_facts,group_facts=group_facts,facts=facts,
+        )
+        return NodeResult(condition='completed',details={'fact_count':len(facts)})
 
-        record=self._node(record,'validate')
+    def _run_validate(self,state):
+        record=state.record;segment_facts=state.artifacts['segment_facts'];group_facts=state.artifacts['group_facts']
         required={'revenue','cost_of_sales'}
         dataset=self.repository.get_dataset(record['dataset_id'],record['dataset_version'])
         current={fact.metric for fact in segment_facts if fact.status=='verified' and fact.period_end.startswith(str(dataset.year))}
@@ -279,9 +306,22 @@ class RunExecutionService:
             )
         verified_segment_facts=[fact for fact in segment_facts if fact.status=='verified']
         verified_group_facts=[fact for fact in group_facts if fact.status=='verified']
-        self._budget(started,record)
+        state.artifacts.update(
+            verified_segment_facts=verified_segment_facts,
+            verified_group_facts=verified_group_facts,
+        )
+        self._budget(state.started,record)
+        return NodeResult(condition='completed',details={
+            'verified_segment_fact_count':len(verified_segment_facts),
+            'verified_group_fact_count':len(verified_group_facts),
+        })
 
-        record=self._node(record,'finance')
+    def _run_finance(self,state):
+        record=state.record;run_id=state.run_id
+        financial_tools=state.artifacts['financial_tools']
+        financial_session=state.artifacts['financial_session']
+        verified_segment_facts=state.artifacts['verified_segment_facts']
+        verified_group_facts=state.artifacts['verified_group_facts']
         calculation_ids=record.get('calculation_ids',[])
         if not calculation_ids:
             segment_metrics=list(FINANCIAL_METRIC_IDS[:3]);group_metrics=list(FINANCIAL_METRIC_IDS[3:])
@@ -299,13 +339,27 @@ class RunExecutionService:
         calculations=[self.repository.get('calculations',item) for item in calculation_ids]
         financial_session.validate_output({'calculations':calculations})
         computed_calculation_ids=[item['id'] for item in calculations if item and item.get('status')=='computed']
-        self._budget(started,record)
+        state.update_record(record)
+        state.artifacts.update(
+            calculation_ids=calculation_ids,calculations=calculations,
+            computed_calculation_ids=computed_calculation_ids,
+        )
+        self._budget(state.started,record)
+        return NodeResult(condition='completed',details={
+            'calculation_ids':calculation_ids,'computed_count':len(computed_calculation_ids),
+        })
 
-        record=self._node(record,'research')
+    def _run_research(self,state):
+        record=state.record;run_id=state.run_id;request=state.request
+        research_skill=state.bindings.skills['evidence_bound_research']
+        claim_prompt=state.bindings.prompt;model_binding=state.bindings.model
+        tools=state.artifacts['tools'];calculations=state.artifacts['calculations']
+        computed_calculation_ids=state.artifacts['computed_calculation_ids']
+        verified_segment_facts=state.artifacts['verified_segment_facts']
         research_session=self.skill_runtime.start(research_skill,{
             'dataset_id':record['dataset_id'],'dataset_version':record['dataset_version'],
             'question':request.question,'verified_facts':verified_segment_facts,
-        },run_deadline)
+        },state.run_deadline)
         research_tools=tools.for_skill(research_skill,research_session.deadline)
         candidate_claims=record.get('claims',[])
         evidence_ids=sorted({evidence_id for fact in verified_segment_facts for evidence_id in fact.evidence_ids})
@@ -324,7 +378,7 @@ class RunExecutionService:
             }
             generation=None
             for attempt in range(MAX_NODE_RETRIES+1):
-                record=self._reserve_model_call(record,started,research_session,attempt)
+                record=self._reserve_model_call(record,state.started,research_session,attempt)
                 try:
                     messages=[
                         {'role':'system','content':claim_prompt.content},
@@ -387,16 +441,36 @@ class RunExecutionService:
                 'usage':generation.usage,'latency_ms':generation.latency_ms,
                 'request_id':generation.request_id,'cost':generation.cost,'claim_count':len(candidate_claims),
             })
-        self._budget(started,record)
+        state.update_record(record)
+        state.artifacts.update(
+            research_session=research_session,research_tools=research_tools,
+            candidate_claims=candidate_claims,evidence_by_id=by_id,
+        )
+        self._budget(state.started,record)
+        return NodeResult(condition='completed',details={
+            'claim_count':len(candidate_claims),'evidence_count':len(by_id),
+        })
 
-        record=self._node(record,'scenario')
+    def _run_scenario(self,state):
+        record=state.record;run_id=state.run_id;request=state.request
+        scenario_skill=state.bindings.skills['scenario_impact']
+        verified_segment_facts=state.artifacts['verified_segment_facts']
+        tools=state.artifacts['tools']
+        candidate_claims=state.artifacts['candidate_claims']
+        calculation_ids=state.artifacts['calculation_ids']
+        computed_calculation_ids=state.artifacts['computed_calculation_ids']
         scenario_ids=record.get('scenario_ids',[]);assumption_ids=[];question=request.question.casefold()
         price_impact=any(term in question for term in ('价格','price')) and any(term in question for term in ('影响','impact'))
         scenario_requested=bool(request.assumptions) or price_impact or any(term in question for term in SCENARIO_TERMS)
         if scenario_requested and request.assumptions is None:
-            self.repository.update_run(run_id,status='waiting_review',current_node='scenario',missing_requirements=['scenario_assumptions'])
-            self.repository.append_event(run_id,'node_status','scenario',{'status':'waiting_review','missing_requirements':['scenario_assumptions']})
-            return
+            state.update_record(self.repository.update_run(
+                run_id,status='waiting_review',current_node='scenario',
+                missing_requirements=['scenario_assumptions'],
+            ))
+            return NodeResult(
+                terminal=True,status='waiting_review',
+                details={'missing_requirements':['scenario_assumptions']},
+            )
         if scenario_requested and not scenario_ids:
             latest_year=max(fact.period_end for fact in verified_segment_facts)
             latest=[fact for fact in verified_segment_facts if fact.period_end==latest_year]
@@ -407,7 +481,7 @@ class RunExecutionService:
                 'model_version':'static-gross-profit-v1','assumptions':request.assumptions.model_dump(mode='json'),
             }
             scenario_session=self.skill_runtime.start(
-                scenario_skill,{'request':scenario_request},run_deadline,
+                scenario_skill,{'request':scenario_request},state.run_deadline,
             )
             scenario_tools=tools.for_skill(scenario_skill,scenario_session.deadline)
             result=scenario_tools.call('compute_scenario',{'request':scenario_request})
@@ -433,9 +507,27 @@ class RunExecutionService:
                 assumption_ids=assumption_ids,claims=candidate_claims,
             ) or record
         else:assumption_ids=record.get('assumption_ids',[])
-        self._budget(started,record)
+        state.update_record(record)
+        state.artifacts.update(
+            scenario_ids=scenario_ids,assumption_ids=assumption_ids,
+            candidate_claims=candidate_claims,calculation_ids=calculation_ids,
+            computed_calculation_ids=computed_calculation_ids,
+        )
+        self._budget(state.started,record)
+        return NodeResult(condition='completed_or_skipped',details={
+            'requested':scenario_requested,'scenario_ids':scenario_ids,
+            'assumption_ids':assumption_ids,
+        })
 
-        record=self._node(record,'verify')
+    def _run_verify(self,state):
+        run_id=state.run_id
+        research_tools=state.artifacts['research_tools']
+        research_session=state.artifacts['research_session']
+        candidate_claims=state.artifacts['candidate_claims']
+        computed_calculation_ids=state.artifacts['computed_calculation_ids']
+        assumption_ids=state.artifacts['assumption_ids']
+        by_id=state.artifacts['evidence_by_id']
+        verified_segment_facts=state.artifacts['verified_segment_facts']
         validated=research_tools.call('validate_claims',{
             'claims':candidate_claims,'allowed_evidence_ids':sorted(by_id),
             'allowed_calculation_ids':computed_calculation_ids,'allowed_assumption_ids':assumption_ids,
@@ -455,34 +547,52 @@ class RunExecutionService:
         final_claims=[item.model_dump(mode='json') for item in checked]
         if not final_claims:raise ModelInvalidResponse('run produced no claims')
         research_session.validate_output({'claims':final_claims})
-        self.repository.append_event(run_id,'node_status','verify',{
-            'status':'support_checked','pending':sum(item.review_status=='pending' for item in checked),
+        state.update_record(self.repository.update_run(
+            run_id,status='running',missing_requirements=[],error=None,
+            claims=final_claims,report_ready=False,
+        ))
+        state.artifacts['final_claims']=final_claims
+        return NodeResult(condition='completed',details={
+            'claims':final_claims,'report_ready':False,
+            'pending':sum(item.review_status=='pending' for item in checked),
             'insufficient':sum(item.review_status=='insufficient' for item in checked),
             'rejected':sum(item.review_status=='rejected' for item in checked),
         })
-        self.repository.update_run(run_id,status='running',current_node='report',missing_requirements=[],error=None,claims=final_claims,report_ready=False)
-        self.repository.append_event(run_id,'node_status','verify',{'status':'completed','claims':final_claims,'report_ready':False})
-        self.reports.complete(run_id)
 
-    def _execute_replay(self,record,bindings):
-        source=self.repository.get_run_record(record['request']['replay_run_id'])
+    def _run_replay_validate(self,state):
+        source=self.repository.get_run_record(state.request.replay_run_id)
         if source is None:raise AppError('NOT_FOUND','回放源 Run 不存在',404)
         source_bindings=self._resolve_bindings(source,verify_current_model=False)
-        if source_bindings.sha256!=bindings.sha256:
+        if source_bindings.sha256!=state.bindings.sha256:
             raise AppError('EXECUTION_VERSION_UNAVAILABLE','回放 Run 与源 Run 的执行版本清单不一致',409)
-        self.repository.append_event(record['id'],'node_status','plan',{
-            'status':'completed','mode':'replay','source_run_id':source['id'],
-            'execution_manifest_sha256':bindings.sha256,
-        })
+        state.artifacts['source']=source
+        return NodeResult(condition='completed',details={'source_run_id':source['id']})
+
+    def _run_replay_copy(self,state):
+        source=state.artifacts['source']
         finalizing=source['status']=='completed'
-        self.repository.update_run(
-            record['id'],status='running' if finalizing else source['status'],current_node='report' if finalizing else 'verify',claims=source.get('claims',[]),
+        state.update_record(self.repository.update_run(
+            state.run_id,status='running' if finalizing else source['status'],claims=source.get('claims',[]),
             calculation_ids=source.get('calculation_ids',[]),scenario_ids=source.get('scenario_ids',[]),
             assumption_ids=source.get('assumption_ids',[]),missing_requirements=[],error=source.get('error'),model_calls=0,
             report_ready=False,
+        ))
+        state.artifacts.update(
+            final_claims=source.get('claims',[]),
+            calculation_ids=source.get('calculation_ids',[]),
+            scenario_ids=source.get('scenario_ids',[]),
+            assumption_ids=source.get('assumption_ids',[]),
         )
-        self.repository.append_event(record['id'],'node_status','verify',{'status':source['status'],'mode':'replay','claims':source.get('claims',[]),'report_ready':False})
-        if finalizing:self.reports.complete(record['id'])
+        return NodeResult(
+            condition='source completed' if finalizing else None,terminal=not finalizing,
+            status='completed' if finalizing else source['status'],
+            details={'source_run_id':source['id'],'source_status':source['status'],'model_calls':0},
+        )
+
+    def _run_report(self,state):
+        self.reports.complete(state.run_id)
+        state.update_record(self.repository.get_run_record(state.run_id))
+        return NodeResult(terminal=True,details={'report_ready':True})
 
     def _finish_error(self,run_id,record,code,message,retryable,details=None):
         current=self.repository.get_run_record(run_id) or record

@@ -52,6 +52,7 @@ def build_model_binding(model_config):
 
 @dataclass(frozen=True)
 class RunBindings:
+    graph:object
     prompt:object
     skills:dict
     tools:dict
@@ -60,7 +61,7 @@ class RunBindings:
     sha256:str
 
 
-def build_execution_manifest(prompt,skills,tool_registry,model_config):
+def build_execution_manifest(graph,prompt,skills,tool_registry,model_config):
     skill_map={skill.id:skill for skill in skills}
     if set(skill_map)!=REQUIRED_SKILL_IDS:raise ExecutionManifestError('required skills are not fully configured')
     tool_names=sorted({name for skill in skills for name in skill.allowed_tools})
@@ -73,7 +74,8 @@ def build_execution_manifest(prompt,skills,tool_registry,model_config):
             'implementation_sha256':spec.implementation_sha256,
         }
     return {
-        'schema_version':'2',
+        'schema_version':'3',
+        'graph':{'id':graph.id,'version':graph.version,'spec_sha256':graph.spec_sha256},
         'prompt':{'id':prompt.id,'version':prompt.version,'sha256':prompt.sha256},
         'skills':{
             skill_id:{
@@ -87,12 +89,14 @@ def build_execution_manifest(prompt,skills,tool_registry,model_config):
     }
 
 
-def resolve_execution_manifest(manifest,expected_sha256,prompt_registry,skill_registry,tool_registry,current_model_config=None):
-    if not isinstance(manifest,dict) or set(manifest)!={'schema_version','prompt','skills','tools','model'}:
+def resolve_execution_manifest(manifest,expected_sha256,graph,prompt_registry,skill_registry,tool_registry,current_model_config=None):
+    if not isinstance(manifest,dict) or set(manifest)!={'schema_version','graph','prompt','skills','tools','model'}:
         raise ExecutionManifestError('invalid execution manifest')
-    if manifest['schema_version']!='2' or manifest_sha256(manifest)!=expected_sha256:
+    if manifest['schema_version']!='3' or manifest_sha256(manifest)!=expected_sha256:
         raise ExecutionManifestError('execution manifest hash mismatch')
-    prompt_ref=manifest['prompt'];skill_refs=manifest['skills'];tool_refs=manifest['tools'];model_ref=manifest['model']
+    graph_ref=manifest['graph'];prompt_ref=manifest['prompt'];skill_refs=manifest['skills'];tool_refs=manifest['tools'];model_ref=manifest['model']
+    if graph_ref!={'id':graph.id,'version':graph.version,'spec_sha256':graph.spec_sha256}:
+        raise ExecutionManifestError('graph binding is unavailable or has changed')
     if not isinstance(prompt_ref,dict) or set(prompt_ref)!={'id','version','sha256'}:
         raise ExecutionManifestError('invalid prompt binding')
     if not isinstance(skill_refs,dict) or set(skill_refs)!=REQUIRED_SKILL_IDS:
@@ -131,4 +135,4 @@ def resolve_execution_manifest(manifest,expected_sha256,prompt_registry,skill_re
     research=skills['evidence_bound_research']
     if research.prompt_version!=prompt.version:
         raise ExecutionManifestError('research skill prompt does not match the Run binding')
-    return RunBindings(prompt,skills,tools,bound_model,manifest,expected_sha256)
+    return RunBindings(graph,prompt,skills,tools,bound_model,manifest,expected_sha256)

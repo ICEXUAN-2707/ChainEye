@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from chain_eye.adapters.deepseek import DeepSeekAdapter,ModelInvalidResponse,ModelRateLimited,ModelUnavailable
 from chain_eye.adapters.sqlite import SQLiteRepository
+from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH
 from chain_eye.api.app import create_app
 from chain_eye.api.dto import RunCreate
 from chain_eye.application.errors import AppError
@@ -114,8 +115,12 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(record['prompt_version'],PROMPT_VERSION);self.assertEqual(llm.prompt_versions,[PROMPT_VERSION])
         self.assertEqual(record['prompt_id'],'claims');self.assertEqual(len(record['prompt_sha256']),64)
         self.assertEqual(set(record['skill_versions']),{'financial_diagnosis','evidence_bound_research','scenario_impact'})
-        self.assertEqual(record['execution_manifest']['schema_version'],'2')
+        self.assertEqual(record['execution_manifest']['schema_version'],'3')
         self.assertEqual(len(record['execution_manifest_sha256']),64)
+        self.assertEqual(record['execution_manifest']['graph'],{
+            'id':DEFAULT_AGENT_GRAPH.id,'version':DEFAULT_AGENT_GRAPH.version,
+            'spec_sha256':DEFAULT_AGENT_GRAPH.spec_sha256,
+        })
         self.assertEqual(record['execution_manifest']['model']['model'],'fake-r4')
         self.assertEqual(record['model_config'],record['execution_manifest']['model']['public_config'])
         self.assertIn('verified Fact.value',llm.system_prompts[0])
@@ -132,6 +137,21 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(llm_event.payload['skill_id'],'evidence_bound_research')
         self.assertEqual(llm_event.payload['prompt_sha256'],record['prompt_sha256'])
         self.assertEqual(llm_event.payload['public_config_sha256'],record['execution_manifest']['model']['public_config_sha256'])
+        completed_nodes=[
+            event for event in events
+            if event.type=='node_status' and event.payload.get('status')=='completed'
+            and event.payload.get('graph_id')==DEFAULT_AGENT_GRAPH.id
+        ]
+        self.assertEqual([event.node for event in completed_nodes],[
+            'plan','extract','validate','finance','research','scenario','verify','report',
+        ])
+        for event in completed_nodes:
+            node=DEFAULT_AGENT_GRAPH.require_node(event.node)
+            self.assertEqual(event.payload['graph_version'],DEFAULT_AGENT_GRAPH.version)
+            self.assertEqual(event.payload['graph_spec_sha256'],DEFAULT_AGENT_GRAPH.spec_sha256)
+            self.assertEqual(event.payload['node_version'],node.version)
+            self.assertEqual(event.payload['node_spec_sha256'],node.spec_sha256)
+            self.assertIsInstance(event.payload['duration_ms'],int)
 
     def test_numeric_claim_without_references_is_downgraded(self):
         _,run,record=self.execute(FakeLLM(unsupported=True))
@@ -297,6 +317,20 @@ class R4Runs(unittest.TestCase):
         record=self.repo.get_run_record(run.id)
         self.assertEqual(record['status'],'failed');self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
         self.assertEqual(llm.calls,[]);self.assertEqual(record['calculation_ids'],[])
+
+    def test_same_graph_version_with_changed_spec_fails_before_side_effects(self):
+        original=RunExecutionService(self.repo,FakeLLM());run,_=original.create_with_status(self.request(),'graph-hash-change')
+        self.assertEqual(self.repo.claim_next_run(),run.id)
+        changed=replace(
+            DEFAULT_AGENT_GRAPH,
+            nodes=(replace(DEFAULT_AGENT_GRAPH.nodes[0],description='changed'),*DEFAULT_AGENT_GRAPH.nodes[1:]),
+        )
+        llm=FakeLLM();service=RunExecutionService(self.repo,llm,graph=changed);service.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'failed');self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
+        self.assertEqual(llm.calls,[]);self.assertEqual(record['calculation_ids'],[])
+        events,_,_=self.repo.list_run_events(run.id,0,100)
+        self.assertFalse(any(event.type in {'tool_call','llm_call','calculation'} for event in events))
 
     def test_legacy_run_without_execution_manifest_cannot_execute_or_replay(self):
         service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(),'legacy-run')
