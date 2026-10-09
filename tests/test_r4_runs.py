@@ -16,6 +16,7 @@ from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH
 from chain_eye.api.app import create_app
 from chain_eye.api.dto import RunCreate
 from chain_eye.application.errors import AppError
+from chain_eye.application.run_manifest import manifest_sha256
 from chain_eye.application.run_tools import RunTools,TOOL_NAMES,ToolFailure
 from chain_eye.application.runs import PROMPT_VERSION,RunExecutionService
 from chain_eye.prompts.registry import DEFAULT_PROMPT_REGISTRY,PromptRegistry,PromptSpec,content_sha256
@@ -242,6 +243,23 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(record['execution_manifest_sha256'],source_record['execution_manifest_sha256'])
         events,_,_=self.repo.list_run_events(created.id,0,100);self.assertFalse(any(event.type=='llm_call' for event in events))
 
+    def test_replay_preserves_partial_source_without_building_report(self):
+        service,source,source_record=self.execute(FakeLLM(empty=True),key='partial-source')
+        self.assertEqual(source.status,'partial');self.assertFalse(source.report_ready)
+        replay=self.request(question='回放部分结果',mode='replay',replay_run_id=source.id)
+        created,_=service.create_with_status(replay,'partial-replay');self.repo.claim_next_run();service.execute(created.id)
+        record=self.repo.get_run_record(created.id)
+        self.assertEqual(record['status'],'partial');self.assertFalse(record['report_ready'])
+        self.assertEqual(record['model_calls'],0);self.assertEqual(record['claims'],source_record['claims'])
+        events,_,_=self.repo.list_run_events(created.id,0,100)
+        completed=[
+            event.node for event in events
+            if event.type=='node_status' and event.payload.get('graph_id')
+            and event.payload.get('status') in {'completed','partial'}
+        ]
+        self.assertEqual(completed,['plan','replay_validate','replay_copy'])
+        self.assertFalse(any(event.type in {'llm_call','report_generated'} for event in events))
+
     def test_queued_run_uses_its_pinned_versions_after_registry_upgrade(self):
         original=RunExecutionService(self.repo,FakeLLM());run,_=original.create_with_status(self.request(),'pinned-upgrade')
         self.assertEqual(self.repo.claim_next_run(),run.id)
@@ -282,6 +300,46 @@ class R4Runs(unittest.TestCase):
         record=self.repo.get_run_record(created.id)
         self.assertEqual(record['status'],'completed');self.assertEqual(record['model_calls'],0)
         self.assertEqual(replay_llm.calls,[])
+
+    def test_schema_v2_completed_run_remains_replayable_via_frozen_compat_graph(self):
+        service,source,source_record=self.execute(FakeLLM(),key='v2-source')
+        legacy={key:value for key,value in source_record['execution_manifest'].items() if key!='graph'}
+        legacy['schema_version']='2'
+        self.repo.update_run(
+            source.id,execution_manifest=legacy,
+            execution_manifest_sha256=manifest_sha256(legacy),
+        )
+        replay=self.request(question='回放 v2 Run',mode='replay',replay_run_id=source.id)
+        created,_=service.create_with_status(replay,'v2-replay');self.repo.claim_next_run();service.execute(created.id)
+        record=self.repo.get_run_record(created.id)
+        self.assertEqual(record['status'],'completed');self.assertEqual(record['model_calls'],0)
+        events,_,_=self.repo.list_run_events(created.id,0,100)
+        plan=next(
+            event for event in events
+            if event.type=='node_status' and event.node=='plan' and event.payload.get('status')=='completed'
+        )
+        self.assertEqual(plan.payload['graph_id'],'chain-eye-r5-compat')
+        self.assertEqual(plan.payload['graph_version'],'manifest-v2')
+
+    def test_schema_v2_queued_live_run_executes_via_frozen_compat_graph(self):
+        llm=FakeLLM();service=RunExecutionService(self.repo,llm)
+        run,_=service.create_with_status(self.request(),'v2-queued-live')
+        record=self.repo.get_run_record(run.id)
+        legacy={key:value for key,value in record['execution_manifest'].items() if key!='graph'}
+        legacy['schema_version']='2'
+        self.repo.update_run(
+            run.id,execution_manifest=legacy,
+            execution_manifest_sha256=manifest_sha256(legacy),
+        )
+        self.assertEqual(self.repo.claim_next_run(),run.id);service.execute(run.id)
+        completed=self.repo.get_run_record(run.id)
+        self.assertEqual(completed['status'],'completed');self.assertEqual(len(llm.calls),1)
+        events,_,_=self.repo.list_run_events(run.id,0,200)
+        graph_ids={
+            event.payload['graph_id'] for event in events
+            if event.type=='node_status' and event.payload.get('graph_id')
+        }
+        self.assertEqual(graph_ids,{'chain-eye-r5-compat'})
 
     def test_model_response_provenance_mismatch_is_rejected(self):
         llm=FakeLLM(model='bound-model',response_model='unexpected-model')
@@ -388,12 +446,22 @@ class R4Runs(unittest.TestCase):
     def test_total_budget_exhaustion_is_failed_before_side_effects(self):
         _,run,record=self.execute(FakeLLM(),clock=Clock())
         self.assertEqual(run.status,'failed');self.assertEqual(run.error.code,'BUDGET_EXCEEDED');self.assertEqual(record['calculation_ids'],[])
+        events,_,_=self.repo.list_run_events(run.id,0,100)
+        failed=next(event for event in events if event.type=='node_status' and event.payload.get('status')=='failed')
+        self.assertEqual(failed.node,'plan');self.assertEqual(failed.payload['error_code'],'BUDGET_EXCEEDED')
+        self.assertEqual(failed.payload['graph_spec_sha256'],DEFAULT_AGENT_GRAPH.spec_sha256)
 
     def test_recovery_does_not_retry_interrupted_model_node(self):
         service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(),'interrupted')
         self.repo.update_run(run.id,status='running',current_node='research',claims=[])
         self.assertEqual(self.repo.recover_interrupted_runs(),[])
         recovered=self.repo.get_run(run.id);self.assertEqual(recovered.status,'failed');self.assertEqual(recovered.error.code,'RUN_INTERRUPTED')
+
+    def test_recovery_requeues_safe_replay_node(self):
+        service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(),'replay-recovery-source')
+        self.repo.update_run(run.id,status='running',current_node='replay_copy')
+        self.assertEqual(self.repo.recover_interrupted_runs(),[run.id])
+        recovered=self.repo.get_run(run.id);self.assertEqual(recovered.status,'queued');self.assertIsNone(recovered.current_node)
 
     def test_event_sequence_is_atomic_and_cursor_is_stable(self):
         service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(),'event-run')

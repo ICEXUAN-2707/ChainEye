@@ -3,6 +3,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime,timedelta,timezone
 from uuid import uuid4
+from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH
+from chain_eye.agents.policy import can_recover_interrupted_node
 from chain_eye.domain.datasets import Dataset,DatasetCreate,Source,SourceAttachment,DatasetSourceLimitError
 from chain_eye.api.dto import Event,Report,Run,RunCreate
 from chain_eye.domain.contracts import Fact,Evidence,ScenarioResult,ErrorBody
@@ -142,9 +144,7 @@ class SQLiteRepository:
                 record=json.loads(body)
                 if record['status']!='running':continue
                 node=record.get('current_node')
-                safe=(node in (None,'plan','extract','validate','scenario','verify','report') or
-                      (node=='finance' and bool(record.get('calculation_ids'))) or
-                      (node=='research' and bool(record.get('claims'))))
+                safe=can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,node,record)
                 if safe:
                     record.update(status='queued',current_node=None,error=None);recovered.append(run_id)
                 else:

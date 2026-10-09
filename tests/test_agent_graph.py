@@ -5,7 +5,8 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH
+from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH,LEGACY_V2_AGENT_GRAPH
+from chain_eye.agents.policy import can_recover_interrupted_node
 from chain_eye.agents.spec import GraphSpec,NodeSpec,TransitionSpec
 from chain_eye.agents.state import AGENT_STATE_FIELDS
 
@@ -34,6 +35,10 @@ class AgentGraphSpec(unittest.TestCase):
         self.assertTrue(all(len(node.spec_sha256)==64 for node in graph.nodes))
         changed=replace(graph,nodes=(replace(graph.nodes[0],description='changed'),*graph.nodes[1:]))
         self.assertNotEqual(changed.spec_sha256,graph.spec_sha256)
+        self.assertEqual(
+            LEGACY_V2_AGENT_GRAPH.spec_sha256,
+            '32fad023e9e89e0d71c6474d7312c030059e199916fcf5beda32fbe32291ef0b',
+        )
 
     def test_graph_rejects_invalid_nodes_and_edges(self):
         node=NodeSpec('only','1','node',(),(),None,(),1,0,'safe',(),())
@@ -50,6 +55,15 @@ class AgentGraphSpec(unittest.TestCase):
         )
         exported=json.loads(result.stdout)
         self.assertEqual(exported,DEFAULT_AGENT_GRAPH.export())
+
+    def test_recovery_policy_uses_graph_metadata_and_completion_markers(self):
+        self.assertTrue(can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,'extract',{}))
+        self.assertFalse(can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,'research',{'claims':[]}))
+        self.assertTrue(can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,'research',{'claims':[{'id':'c'}]}))
+        self.assertFalse(can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,'finance',{'calculation_ids':[]}))
+        self.assertTrue(can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,'finance',{'calculation_ids':['c-1']}))
+        self.assertTrue(can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,'replay_copy',{}))
+        self.assertFalse(can_recover_interrupted_node(DEFAULT_AGENT_GRAPH,'unknown',{}))
 
 
 if __name__=='__main__':unittest.main()

@@ -1,4 +1,6 @@
 """Authoritative G3 graph declaration; node handlers are wired by the orchestrator."""
+from dataclasses import replace
+
 from chain_eye.agents.spec import GraphSpec,NodeSpec,TransitionSpec
 from chain_eye.agents.state import AGENT_STATE_FIELDS,AGENT_STATE_SCHEMA_VERSION
 from chain_eye.agents.policy import MAX_NODE_RETRIES,RUN_BUDGET_SECONDS
@@ -43,4 +45,11 @@ DEFAULT_AGENT_GRAPH=GraphSpec(
         TransitionSpec('replay_validate','replay_copy','completed'),
         TransitionSpec('replay_copy','report','source completed'),
     ),
+)
+
+# Schema-v2 manifests predate graph bindings. This frozen compatibility identity
+# preserves their established R5 path without pretending the old manifest
+# cryptographically bound a graph. A hash-lock test makes future drift explicit.
+LEGACY_V2_AGENT_GRAPH=replace(
+    DEFAULT_AGENT_GRAPH,id='chain-eye-r5-compat',version='manifest-v2',
 )

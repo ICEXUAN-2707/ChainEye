@@ -7,7 +7,7 @@ from decimal import Decimal,InvalidOperation
 
 from pydantic import ValidationError
 
-from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH
+from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH,LEGACY_V2_AGENT_GRAPH
 from chain_eye.agents.orchestrator import AgentOrchestrator,NodeResult
 from chain_eye.agents.policy import MAX_MODEL_CALLS,MAX_NODE_RETRIES,RUN_BUDGET_SECONDS
 from chain_eye.agents.state import AgentState
@@ -86,7 +86,6 @@ class RunExecutionService:
         self.prompt_registry=prompt_registry or DEFAULT_PROMPT_REGISTRY
         self.skill_registry=skill_registry or DEFAULT_SKILL_REGISTRY
         self.graph=graph or DEFAULT_AGENT_GRAPH
-        self.orchestrator=AgentOrchestrator(self.graph,self.repository,self.clock)
         self.financial_skill=self.skill_registry.require('financial_diagnosis')
         self.research_skill=self.skill_registry.require('evidence_bound_research')
         self.scenario_skill=self.skill_registry.require('scenario_impact')
@@ -139,7 +138,8 @@ class RunExecutionService:
         try:
             bindings=resolve_execution_manifest(
                 record.get('execution_manifest'),record.get('execution_manifest_sha256'),
-                self.graph,self.prompt_registry,self.skill_registry,self.tool_registry,
+                self.graph,LEGACY_V2_AGENT_GRAPH,
+                self.prompt_registry,self.skill_registry,self.tool_registry,
                 self.model_config if verify_current_model else None,
             )
             if record.get('model_config')!=bindings.model['public_config']:
@@ -225,7 +225,7 @@ class RunExecutionService:
             'verify':self._run_verify,'replay_validate':self._run_replay_validate,
             'replay_copy':self._run_replay_copy,'report':self._run_report,
         }
-        self.orchestrator.execute(state,handlers)
+        AgentOrchestrator(bindings.graph,self.repository,self.clock).execute(state,handlers)
 
     def _run_plan(self,state):
         record=state.record;bindings=state.bindings
