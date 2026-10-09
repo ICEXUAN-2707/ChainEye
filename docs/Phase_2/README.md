@@ -1,8 +1,8 @@
 # 链眼 第二阶段优化资料包 v0.2
-更新日期：2026-10-08。两人开发：Ice/Codex负责架构、核心后端与集成；同学/Claude负责前端与交互。
+更新日期：2026-10-09。两人开发：Ice/Codex负责架构、核心后端与集成；同学/Claude负责前端与交互。
 
 ## 本包定位
-这是产品、工程和比赛复现交接包，不替换现有仓库。`main@c764218` 已包含 R5、Claim/追溯修复、Vite 安全升级和 PR17 诊断/PDF 修复。2026-10-08 的代码核查确认：现有系统具备真实 Run、六个快照受限 Tool、DeepSeek/replay、Claim 校验和报告链路，但编排仍集中在 `runs.py`，Prompt 内联，没有运行时 Skill、MCP、统一日志和跨平台一键复现；解析仍只适配宁德时代冻结文本版式，扫描 PDF 无 OCR。详细证据见 `records/current-state-2026-10-08.md`。
+这是产品、工程和比赛复现交接包，不替换现有仓库。`main/develop@128f2c7` 已包含 R5、Agent 基线和 PR #19 Registry：六个 Tool 使用单一注册源，Prompt 已文件化并绑定 SHA256，三个 Skill 被运行时加载，Run 固化 Tool 实现和模型 provenance。编排仍集中在 `runs.py`，尚无显式 graph、MCP、统一 JSONL 日志和跨平台一键复现；解析仍只适配宁德时代冻结文本版式，扫描 PDF 无 OCR。原始核查证据见 `records/current-state-2026-10-08.md`，G2 增量见仓库 `validation/P2-AgentRegistry验收记录.md`。
 
 Phase 1 人工财务签核、第二位开发者独立复现和 PR 互审仍只能由实际执行者确认。本包不把这些待办或未实现的 Agent/MCP 能力写成成功。
 “第二阶段”编号P2，是本次功能优化迭代，不等于旧计划中的R2。P2横跨旧R2数据、R3计算、R4研究和R5报告；旧阶段要求继续有效，缺失基础须先补齐。
