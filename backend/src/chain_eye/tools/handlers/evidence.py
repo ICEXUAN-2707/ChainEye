@@ -4,6 +4,12 @@ import re
 
 def get_facts(context,dataset_id,dataset_version,metric_ids=None,segment=None,period=None):
     context.check_snapshot(dataset_id,dataset_version);context.check_budget()
+    if metric_ids is not None and (
+        not isinstance(metric_ids,list) or len(metric_ids)>50
+        or not all(isinstance(item,str) and item for item in metric_ids)
+    ):
+        from chain_eye.tools.spec import ToolFailure
+        raise ToolFailure('metric_ids must contain at most 50 non-empty strings')
     metrics=set(metric_ids or [])
     facts=context.repository.facts(context.dataset_id,context.dataset_version);context.check_budget()
     return [
@@ -26,6 +32,9 @@ def _search_terms(query):
 
 def search_documents(context,dataset_id,dataset_version,query,filters=None,top_k=8):
     context.check_snapshot(dataset_id,dataset_version)
+    if not isinstance(query,str) or not query.strip() or len(query)>500:
+        from chain_eye.tools.spec import ToolFailure
+        raise ToolFailure('query must be a non-empty string of at most 500 characters')
     if not isinstance(top_k,int) or isinstance(top_k,bool) or not 1<=top_k<=8:
         from chain_eye.tools.spec import ToolFailure
         raise ToolFailure('top_k must be an integer from 1 to 8')
@@ -49,6 +58,12 @@ def search_documents(context,dataset_id,dataset_version,query,filters=None,top_k
 
 def get_evidence(context,evidence_ids):
     context.check_budget()
+    if (
+        not isinstance(evidence_ids,list) or not 1<=len(evidence_ids)<=50
+        or not all(isinstance(item,str) and item for item in evidence_ids)
+    ):
+        from chain_eye.tools.spec import ToolFailure
+        raise ToolFailure('evidence_ids must contain 1 to 50 non-empty strings')
     allowed={item.id:item for item in context.repository.evidence_for_snapshot(context.dataset_id,context.dataset_version)}
     context.check_budget()
     missing=[item for item in evidence_ids if item not in allowed]
