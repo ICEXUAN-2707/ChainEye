@@ -22,6 +22,17 @@ python tools/start_backend.py
 
 DeepSeek 的真实调用链为：`tools/start_backend.py` 加载 `.env` → `api/app.py` 创建 `DeepSeekAdapter` → live Run 的 research 节点调用 `llm.generate()` → `adapters/deepseek.py` 向 `https://api.deepseek.com/chat/completions` 发起 POST。只有 live Run 到达 research 节点且存在密钥时才产生真实请求；replay 不调用模型，`tools/smoke_local.py` 会主动移除密钥并验证 `MODEL_UNAVAILABLE` 边界。官方 Chat Completions 与 JSON Output 文档当前均列出 `deepseek-flash`。本地无费用验证可运行 `python -m unittest tests.test_r4_runs.DeepSeekBoundary -v`；该测试 mock HTTP，不证明密钥、余额或线上服务可用。真实验证必须由人工配置密钥后创建 live Run，并在 Run events 中核对 `llm_call` 的 provider、model、request_id、usage、实现摘要与状态；真实调用可能产生费用，不进入普通 CI。
 
+## MCP 只读接口
+
+MCP MVP 使用官方 Python SDK 和 stdio 传输，与 Agent 共用 Tool Registry，不创建第二套业务实现。它只发布 `get_facts`、`get_evidence`、`search_documents`、`get_run_trace` 和 `get_report`；不暴露写操作、任意文件、SQL、shell、网络或模型调用。Dataset 读取必须指定版本，MCP 读取不写入 Run trace，也不会调用 DeepSeek。
+
+```bash
+PYTHONPATH=backend/src python -m chain_eye.mcp.server
+PYTHONPATH=backend/src python tools/mcp_smoke.py
+```
+
+Windows PowerShell 先设置 `$env:PYTHONPATH="backend/src"`。第一条命令由 MCP client 通过 stdio 管理，不应在其 stdout 写入其他日志；第二条会启动真实子进程，验证初始化、列举、版本化 Dataset/Evidence 读取、Prompt/Skill 元数据与正常退出。传入 `--run-id <已完成Run>` 时另外验证已持久化的 trace 和 report。
+
 另一个终端：
 ```bash
 cd frontend
