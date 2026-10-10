@@ -27,6 +27,17 @@ def _tool_context(callback):
     except Exception as exc:raise ToolError('ChainEye context is unavailable') from exc
 
 
+def _bounded_ids(values,name,required=False):
+    if values is None and not required:return None
+    if (
+        not isinstance(values,list) or not int(required)<=len(values)<=50
+        or not all(isinstance(item,str) and item and len(item)<=128 for item in values)
+    ):
+        minimum='1' if required else '0'
+        raise ToolError(f'{name} must contain {minimum} to 50 identifiers of at most 128 characters')
+    return values
+
+
 def _resource_call(callback):
     try:return bounded_json(callback())
     except (ToolFailure,SkillRegistryError,MCPSerializationError) as exc:raise ResourceError(str(exc)) from exc
@@ -67,6 +78,7 @@ def create_server(repository=None,db_path=None,seed=True,tool_registry=None,prom
 
     @server.tool(name='get_facts',description=tools.require('get_facts').description,annotations=READ_ONLY,structured_output=True)
     def mcp_get_facts(dataset_id:str,dataset_version:int,metric_ids:list[str]|None=None,segment:str|None=None,period:str|None=None)->dict[str,Any]:
+        metric_ids=_bounded_ids(metric_ids,'metric_ids')
         context=_tool_context(lambda:snapshot_context(repo,dataset_id,dataset_version))
         items=_tool_call(tools,'get_facts',{
             'dataset_id':dataset_id,'dataset_version':dataset_version,'metric_ids':metric_ids,
@@ -76,12 +88,14 @@ def create_server(repository=None,db_path=None,seed=True,tool_registry=None,prom
 
     @server.tool(name='get_evidence',description=tools.require('get_evidence').description,annotations=READ_ONLY,structured_output=True)
     def mcp_get_evidence(dataset_id:str,dataset_version:int,evidence_ids:list[str])->dict[str,Any]:
+        evidence_ids=_bounded_ids(evidence_ids,'evidence_ids',True)
         context=_tool_context(lambda:snapshot_context(repo,dataset_id,dataset_version))
         items=_tool_call(tools,'get_evidence',{'evidence_ids':evidence_ids},context)
         return {'dataset_id':dataset_id,'dataset_version':dataset_version,'items':items}
 
     @server.tool(name='search_documents',description=tools.require('search_documents').description,annotations=READ_ONLY,structured_output=True)
     def mcp_search_documents(dataset_id:str,dataset_version:int,query:str,filters:dict[str,Any]|None=None,top_k:int=8)->dict[str,Any]:
+        if not query.strip() or len(query)>500:raise ToolError('query must contain 1 to 500 characters')
         context=_tool_context(lambda:snapshot_context(repo,dataset_id,dataset_version))
         items=_tool_call(tools,'search_documents',{
             'dataset_id':dataset_id,'dataset_version':dataset_version,'query':query,
