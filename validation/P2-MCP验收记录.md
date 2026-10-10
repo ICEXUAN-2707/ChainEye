@@ -19,6 +19,7 @@
 2. 已将这些限制移至 MCP 协议边界，不改 Agent handler。与 `develop@0d74837` 的六个 Agent Tool 实现哈希逐项对比，结果全部一致，并将预期哈希固化为回归测试。
 3. MCP 调用使用 `run_id=None` 的上下文，Registry 拒绝 MCP 带 Run 写入上下文；测试证明 trace/report 读取前后 Run event 数量和内容不变。
 4. 输出限制为 262144 字节，精确敏感键会被移除；不暴露任意 shell、SQL、文件路径、网络或写工具。
+5. MCP server 默认启动不 seed 演示数据；仅 `mcp_smoke.py` 在父进程显式准备隔离测试库，避免把隐式初始化写入包装成只读协议行为。
 
 ## 实际执行与结果
 
@@ -26,7 +27,7 @@ PowerShell 执行时使用 `$env:PYTHONPATH="backend/src"`。
 
 | 命令 | 真实结果 |
 |---|---|
-| `.venv\Scripts\python.exe -m unittest discover -s tests -v` | PASS，178 tests，201.758s |
+| `.venv\Scripts\python.exe -m unittest discover -s tests -v` | PASS，179 tests，174.835s |
 | `.venv\Scripts\python.exe tools\verify_baseline.py` | PASS，30 fixture records、4 margin checks、文件哈希和契约引用通过 |
 | `.venv\Scripts\python.exe tools\export_contracts.py` | PASS，导出 OpenAPI/Schema 0.4.0 |
 | `.venv\Scripts\python.exe tools\generate_ts.py` | PASS，生成 TypeScript |

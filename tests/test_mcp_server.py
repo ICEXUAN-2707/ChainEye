@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from mcp import Client
 from mcp.shared.exceptions import MCPError
@@ -20,6 +21,11 @@ class MCPServerSurface(unittest.IsolatedAsyncioTestCase):
         self.server=create_server(self.repo)
 
     def tearDown(self):self.tmp.cleanup()
+
+    def test_default_server_does_not_seed_demo_data(self):
+        with patch('chain_eye.mcp.server.build_repository',return_value=object()) as builder:
+            create_server(db_path='read-only.sqlite')
+        builder.assert_called_once_with('read-only.sqlite',False)
 
     async def test_catalog_exposes_only_read_tools_resources_and_prompt(self):
         async with Client(self.server,mode='legacy') as client:

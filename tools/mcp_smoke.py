@@ -8,10 +8,13 @@ from pathlib import Path
 
 from mcp import Client,StdioServerParameters
 
+from chain_eye.mcp.context import build_repository
+
 ROOT=Path(__file__).resolve().parents[1]
 
 
 async def smoke(db_path,run_id=None):
+    build_repository(db_path,seed=True)
     env={
         'PYTHONPATH':str(ROOT/'backend/src'),'CHAIN_EYE_DB':str(Path(db_path).resolve()),
         'CHAIN_EYE_MODE':'local','PYTHONUTF8':'1',

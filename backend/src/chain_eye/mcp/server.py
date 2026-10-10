@@ -61,7 +61,7 @@ def _dataset_value(repository,dataset_id,dataset_version):
     return repository.get_dataset(dataset_id,dataset_version)
 
 
-def create_server(repository=None,db_path=None,seed=True,tool_registry=None,prompt_registry=None,skill_registry=None):
+def create_server(repository=None,db_path=None,seed=False,tool_registry=None,prompt_registry=None,skill_registry=None):
     repo=repository or build_repository(db_path,seed)
     tools=tool_registry or DEFAULT_TOOL_REGISTRY
     prompts=prompt_registry or DEFAULT_PROMPT_REGISTRY

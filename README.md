@@ -31,7 +31,7 @@ PYTHONPATH=backend/src python -m chain_eye.mcp.server
 PYTHONPATH=backend/src python tools/mcp_smoke.py
 ```
 
-Windows PowerShell 先设置 `$env:PYTHONPATH="backend/src"`。第一条命令由 MCP client 通过 stdio 管理，不应在其 stdout 写入其他日志；第二条会启动真实子进程，验证初始化、列举、版本化 Dataset/Evidence 读取、Prompt/Skill 元数据与正常退出。传入 `--run-id <已完成Run>` 时另外验证已持久化的 trace 和 report。
+Windows PowerShell 先设置 `$env:PYTHONPATH="backend/src"`。第一条命令由 MCP client 通过 stdio 管理，读取已由后端初始化的本地数据库，不自动 seed 演示数据，也不应在 stdout 写入其他日志；第二条会显式创建或复用隔离的 smoke 数据库，然后启动真实子进程，验证初始化、列举、版本化 Dataset/Evidence 读取、Prompt/Skill 元数据与正常退出。传入 `--run-id <已完成Run>` 时另外验证已持久化的 trace 和 report。
 
 另一个终端：
 ```bash
