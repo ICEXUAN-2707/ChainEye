@@ -3,6 +3,7 @@ import subprocess,os,sys,time,json,signal,urllib.request,uuid
 import httpx2 as httpx
 from pathlib import Path
 root=Path(__file__).resolve().parents[1];procs=[]
+UPLOAD_TIMEOUT_SECONDS=120
 def get(url,origin=None):
  r=urllib.request.Request(url,headers={'Origin':origin} if origin else {})
  with urllib.request.urlopen(r,timeout=5) as response:return response.status,dict(response.headers),response.read()
@@ -26,7 +27,12 @@ try:
  with httpx.Client(base_url='http://127.0.0.1:8000',headers={'Origin':'http://127.0.0.1:5173'},timeout=30) as client:
   created=client.post('/api/v1/datasets',json={'name':f'HTTP smoke {uuid.uuid4()}','company':'CATL','year':2025});created.raise_for_status()
   with (root/'data/raw/catl_2025.pdf').open('rb') as source:
-   uploaded=client.post(f"/api/v1/datasets/{created.json()['id']}/sources",files={'file':('catl_2025.pdf',source,'application/pdf')},data={'url':'https://www.catl.com/','published_date':'2026-03-01'})
+   uploaded=client.post(
+    f"/api/v1/datasets/{created.json()['id']}/sources",
+    files={'file':('catl_2025.pdf',source,'application/pdf')},
+    data={'url':'https://www.catl.com/','published_date':'2026-03-01'},
+    timeout=UPLOAD_TIMEOUT_SECONDS,
+   )
   uploaded.raise_for_status();attachment=uploaded.json();assert attachment['dataset']['version']==3;assert attachment['source']['id']=='catl-2025';assert attachment['source']['parse_status']=='parsed'
   extracted=client.get(f"/api/v1/datasets/{created.json()['id']}/facts?version=3");extracted.raise_for_status();candidates=extracted.json()['items'];assert len(candidates)==15;assert all(item['status']=='extracted' for item in candidates)
   candidate=next(item for item in candidates if item['segment']=='power_battery' and item['metric']=='revenue')

@@ -20,6 +20,8 @@ python tools/start_backend.py
 ```
 `tools/start_backend.py`会显式加载仓库根目录的`.env`，但不会覆盖启动进程中已经设置的同名环境变量。复制`.env.example`为`.env`后填写`DEEPSEEK_API_KEY`即可；默认模型为`deepseek-flash`，密钥和`.env`不得提交。
 
+DeepSeek 的真实调用链为：`tools/start_backend.py` 加载 `.env` → `api/app.py` 创建 `DeepSeekAdapter` → live Run 的 research 节点调用 `llm.generate()` → `adapters/deepseek.py` 向 `https://api.deepseek.com/chat/completions` 发起 POST。只有 live Run 到达 research 节点且存在密钥时才产生真实请求；replay 不调用模型，`tools/smoke_local.py` 会主动移除密钥并验证 `MODEL_UNAVAILABLE` 边界。官方 Chat Completions 与 JSON Output 文档当前均列出 `deepseek-flash`。本地无费用验证可运行 `python -m unittest tests.test_r4_runs.DeepSeekBoundary -v`；该测试 mock HTTP，不证明密钥、余额或线上服务可用。真实验证必须由人工配置密钥后创建 live Run，并在 Run events 中核对 `llm_call` 的 provider、model、request_id、usage、实现摘要与状态；真实调用可能产生费用，不进入普通 CI。
+
 另一个终端：
 ```bash
 cd frontend
