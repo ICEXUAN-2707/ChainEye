@@ -15,13 +15,14 @@ from chain_eye.tools.spec import ToolContext,ToolFailure,ToolSpec
 
 
 class AgentRegistries(unittest.TestCase):
-    def test_default_tool_registry_is_the_single_six_tool_source(self):
+    def test_default_tool_registry_is_the_single_agent_and_mcp_tool_source(self):
         self.assertEqual(TOOL_NAMES,frozenset({
             'search_documents','get_evidence','get_facts','compute_financials',
             'compute_scenario','validate_claims',
         }))
-        self.assertEqual(DEFAULT_TOOL_REGISTRY.names,TOOL_NAMES)
+        self.assertEqual(DEFAULT_TOOL_REGISTRY.names,TOOL_NAMES|{'get_run_trace','get_report'})
         self.assertIn('mcp',DEFAULT_TOOL_REGISTRY.require('get_facts').allowed_callers)
+        self.assertEqual(DEFAULT_TOOL_REGISTRY.require('get_report').allowed_callers,frozenset({'mcp'}))
         self.assertNotIn('mcp',DEFAULT_TOOL_REGISTRY.require('compute_financials').allowed_callers)
         with self.assertRaises(ValueError):ToolRegistry([])
 
