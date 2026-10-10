@@ -1,5 +1,6 @@
 """Immutable registry bindings captured when a Run is created."""
 import hashlib
+import inspect
 import json
 from dataclasses import dataclass
 
@@ -41,13 +42,27 @@ def normalize_model_config(config):
         raise ExecutionManifestError('public model configuration is not JSON serializable') from exc
 
 
-def build_model_binding(model_config):
+def _adapter_implementation(adapter):
+    method=getattr(type(adapter),'generate',None)
+    if method is None:raise ExecutionManifestError('model adapter generate implementation is unavailable')
+    try:source=inspect.getsource(method).replace('\r\n','\n')
+    except (OSError,TypeError) as exc:
+        raise ExecutionManifestError('model adapter generate implementation is unavailable') from exc
+    identity=f'{method.__module__}:{method.__qualname__}'
+    return identity,hashlib.sha256(source.encode('utf-8')).hexdigest()
+
+
+def build_model_binding(model_config,adapter=None):
     config=normalize_model_config(model_config)
-    return {
+    binding={
         'provider':config['provider'],'model':config['model'],
         'adapter_version':config['adapter_version'],'endpoint':config['endpoint'],
         'public_config':config,'public_config_sha256':_canonical_sha256(config),
     }
+    if adapter is not None:
+        identity,digest=_adapter_implementation(adapter)
+        binding.update(implementation_id=identity,implementation_sha256=digest)
+    return binding
 
 
 @dataclass(frozen=True)
@@ -59,9 +74,10 @@ class RunBindings:
     model:dict
     manifest:dict
     sha256:str
+    provenance_complete:bool=True
 
 
-def build_execution_manifest(graph,prompt,skills,tool_registry,model_config):
+def build_execution_manifest(graph,prompt,skills,tool_registry,model_config,model_adapter):
     skill_map={skill.id:skill for skill in skills}
     if set(skill_map)!=REQUIRED_SKILL_IDS:raise ExecutionManifestError('required skills are not fully configured')
     tool_names=sorted({name for skill in skills for name in skill.allowed_tools})
@@ -85,14 +101,34 @@ def build_execution_manifest(graph,prompt,skills,tool_registry,model_config):
             for skill_id,skill in sorted(skill_map.items())
         },
         'tools':tools,
-        'model':build_model_binding(model_config),
+        'model':build_model_binding(model_config,model_adapter),
     }
 
 
-def resolve_execution_manifest(manifest,expected_sha256,graph,legacy_graph,prompt_registry,skill_registry,tool_registry,current_model_config=None):
+def build_legacy_replay_manifest(graph,source_run_id):
+    """Describe a copy-only replay without inventing historical provenance."""
+    return {
+        'schema_version':'legacy-replay-1',
+        'graph':{'id':graph.id,'version':graph.version,'spec_sha256':graph.spec_sha256},
+        'source_run_id':source_run_id,
+        'provenance':{
+            'status':'incomplete',
+            'missing':['execution_manifest','prompt_hash','skill_hashes','tool_hashes','model_implementation_hash'],
+        },
+    }
+
+
+def resolve_execution_manifest(manifest,expected_sha256,graph,legacy_graph,legacy_replay_graph,prompt_registry,skill_registry,tool_registry,current_model_config=None,current_model_adapter=None):
     if not isinstance(manifest,dict) or manifest_sha256(manifest)!=expected_sha256:
         raise ExecutionManifestError('execution manifest hash mismatch')
     schema_version=manifest.get('schema_version')
+    if schema_version=='legacy-replay-1':
+        expected=build_legacy_replay_manifest(legacy_replay_graph,manifest.get('source_run_id'))
+        if not isinstance(manifest.get('source_run_id'),str) or not manifest['source_run_id'] or manifest!=expected:
+            raise ExecutionManifestError('invalid legacy replay manifest')
+        return RunBindings(
+            legacy_replay_graph,None,{}, {},{},manifest,expected_sha256,False,
+        )
     if schema_version=='3':
         expected_fields={'schema_version','graph','prompt','skills','tools','model'}
         if set(manifest)!=expected_fields:
@@ -114,13 +150,28 @@ def resolve_execution_manifest(manifest,expected_sha256,graph,legacy_graph,promp
     if not isinstance(skill_refs,dict) or set(skill_refs)!=REQUIRED_SKILL_IDS:
         raise ExecutionManifestError('invalid skill bindings')
     if not isinstance(tool_refs,dict):raise ExecutionManifestError('invalid tool bindings')
-    if not isinstance(model_ref,dict) or set(model_ref)!={
+    old_model_fields={
         'provider','model','adapter_version','endpoint','public_config','public_config_sha256',
-    }:raise ExecutionManifestError('invalid model binding')
+    }
+    expected_model_fields=(
+        old_model_fields if schema_version=='2'
+        else old_model_fields|{'implementation_id','implementation_sha256'}
+    )
+    if not isinstance(model_ref,dict) or set(model_ref)!=expected_model_fields:
+        raise ExecutionManifestError('invalid model binding')
     bound_model=build_model_binding(model_ref['public_config'])
+    if schema_version=='3':
+        implementation_id=model_ref['implementation_id'];implementation_hash=model_ref['implementation_sha256']
+        if not isinstance(implementation_id,str) or not implementation_id or not isinstance(implementation_hash,str) or len(implementation_hash)!=64:
+            raise ExecutionManifestError('invalid model implementation binding')
+        bound_model={**bound_model,'implementation_id':implementation_id,'implementation_sha256':implementation_hash}
     if model_ref!=bound_model:raise ExecutionManifestError('model binding hash or public configuration mismatch')
-    if current_model_config is not None and build_model_binding(current_model_config)!=model_ref:
-        raise ExecutionManifestError('current model adapter does not match the Run binding')
+    if current_model_config is not None:
+        current_binding=build_model_binding(
+            current_model_config,current_model_adapter if schema_version=='3' else None,
+        )
+        if current_binding!=model_ref:
+            raise ExecutionManifestError('current model adapter does not match the Run binding')
     try:
         prompt=prompt_registry.resolve(prompt_ref['id'],prompt_ref['version'],prompt_ref['sha256'])
         skills={}

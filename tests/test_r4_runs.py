@@ -123,6 +123,8 @@ class R4Runs(unittest.TestCase):
             'spec_sha256':DEFAULT_AGENT_GRAPH.spec_sha256,
         })
         self.assertEqual(record['execution_manifest']['model']['model'],'fake-r4')
+        self.assertTrue(record['execution_manifest']['model']['implementation_id'].endswith(':FakeLLM.generate'))
+        self.assertEqual(len(record['execution_manifest']['model']['implementation_sha256']),64)
         self.assertEqual(record['model_config'],record['execution_manifest']['model']['public_config'])
         self.assertIn('verified Fact.value',llm.system_prompts[0])
         events,after,more=self.repo.list_run_events(run.id,0,200)
@@ -138,6 +140,10 @@ class R4Runs(unittest.TestCase):
         self.assertEqual(llm_event.payload['skill_id'],'evidence_bound_research')
         self.assertEqual(llm_event.payload['prompt_sha256'],record['prompt_sha256'])
         self.assertEqual(llm_event.payload['public_config_sha256'],record['execution_manifest']['model']['public_config_sha256'])
+        self.assertEqual(
+            llm_event.payload['model_implementation_sha256'],
+            record['execution_manifest']['model']['implementation_sha256'],
+        )
         completed_nodes=[
             event for event in events
             if event.type=='node_status' and event.payload.get('status')=='completed'
@@ -305,6 +311,10 @@ class R4Runs(unittest.TestCase):
         service,source,source_record=self.execute(FakeLLM(),key='v2-source')
         legacy={key:value for key,value in source_record['execution_manifest'].items() if key!='graph'}
         legacy['schema_version']='2'
+        legacy['model']={
+            key:value for key,value in legacy['model'].items()
+            if key not in {'implementation_id','implementation_sha256'}
+        }
         self.repo.update_run(
             source.id,execution_manifest=legacy,
             execution_manifest_sha256=manifest_sha256(legacy),
@@ -327,6 +337,10 @@ class R4Runs(unittest.TestCase):
         record=self.repo.get_run_record(run.id)
         legacy={key:value for key,value in record['execution_manifest'].items() if key!='graph'}
         legacy['schema_version']='2'
+        legacy['model']={
+            key:value for key,value in legacy['model'].items()
+            if key not in {'implementation_id','implementation_sha256'}
+        }
         self.repo.update_run(
             run.id,execution_manifest=legacy,
             execution_manifest_sha256=manifest_sha256(legacy),
@@ -390,16 +404,60 @@ class R4Runs(unittest.TestCase):
         events,_,_=self.repo.list_run_events(run.id,0,100)
         self.assertFalse(any(event.type in {'tool_call','llm_call','calculation'} for event in events))
 
-    def test_legacy_run_without_execution_manifest_cannot_execute_or_replay(self):
+    def test_same_adapter_config_with_changed_generate_fails_before_side_effects(self):
+        class ChangedFakeLLM(FakeLLM):
+            def generate(self,task_name,prompt_version,messages,response_schema,budget):
+                return super().generate(task_name,prompt_version,messages,response_schema,budget)
+        original=RunExecutionService(self.repo,FakeLLM());run,_=original.create_with_status(self.request(),'adapter-code-change')
+        self.assertEqual(self.repo.claim_next_run(),run.id)
+        changed=ChangedFakeLLM();service=RunExecutionService(self.repo,changed);service.execute(run.id)
+        record=self.repo.get_run_record(run.id)
+        self.assertEqual(record['status'],'failed');self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
+        self.assertEqual(changed.calls,[]);self.assertEqual(record['calculation_ids'],[])
+        events,_,_=self.repo.list_run_events(run.id,0,100)
+        self.assertFalse(any(event.type in {'tool_call','llm_call','calculation'} for event in events))
+
+    def test_unfinished_legacy_run_without_manifest_fails_with_upgrade_action(self):
         service=RunExecutionService(self.repo,FakeLLM());run,_=service.create_with_status(self.request(),'legacy-run')
         self.repo.update_run(run.id,execution_manifest=None,execution_manifest_sha256=None)
         self.assertEqual(self.repo.claim_next_run(),run.id);service.execute(run.id)
         record=self.repo.get_run_record(run.id)
         self.assertEqual(record['status'],'failed');self.assertEqual(record['error']['code'],'EXECUTION_VERSION_UNAVAILABLE')
-        self.repo.update_run(run.id,status='partial')
-        replay=self.request(question='回放旧 Run',mode='replay',replay_run_id=run.id)
-        with self.assertRaises(AppError) as caught:service.create_with_status(replay,'legacy-replay')
-        self.assertEqual(caught.exception.code,'EXECUTION_VERSION_UNAVAILABLE')
+        self.assertEqual(record['error']['details']['action'],'drain_or_cancel_before_upgrade')
+
+    def test_base_shaped_completed_run_without_manifest_replays_with_incomplete_provenance(self):
+        service,source,record=self.execute(FakeLLM(),key='pre-manifest-source')
+        legacy={
+            key:record[key] for key in (
+                'id','dataset_id','dataset_version','status','mode','current_node',
+                'missing_requirements','error','request','owner_id','created_at','updated_at',
+                'claims','calculation_ids','scenario_ids','model_calls','node_retries','report_ready',
+            )
+        }
+        legacy['model_config']={
+            key:value for key,value in record['model_config'].items()
+            if key in {'provider','model','response_format','timeout_seconds'}
+        }
+        legacy['prompt_version']=record['prompt_version']
+        with self.repo.connect() as db:
+            db.execute('UPDATE runs SET body=? WHERE id=?',(
+                json.dumps(legacy,ensure_ascii=False,separators=(',',':')),source.id,
+            ))
+        replay=self.request(question='回放清单机制前的 Run',mode='replay',replay_run_id=source.id)
+        created,_=service.create_with_status(replay,'pre-manifest-replay')
+        created_record=self.repo.get_run_record(created.id)
+        self.assertEqual(created_record['execution_manifest']['schema_version'],'legacy-replay-1')
+        self.assertEqual(created_record['execution_manifest']['provenance']['status'],'incomplete')
+        self.assertEqual(self.repo.claim_next_run(),created.id);service.execute(created.id)
+        completed=self.repo.get_run_record(created.id)
+        self.assertEqual(completed['status'],'completed');self.assertEqual(completed['model_calls'],0)
+        report=service.reports.get_or_build(created.id)
+        self.assertTrue(any('provenance 不完整' in item for item in report.limitations))
+        events,_,_=self.repo.list_run_events(created.id,0,100)
+        plan=next(event for event in events if event.node=='plan' and event.payload.get('status')=='completed')
+        self.assertEqual(plan.payload['graph_id'],'chain-eye-legacy-artifact-replay')
+        self.assertEqual(plan.payload['provenance']['status'],'incomplete')
+        self.assertFalse(any(event.type=='llm_call' for event in events))
 
     def test_research_zero_model_budget_prevents_model_call(self):
         research=replace(DEFAULT_SKILL_REGISTRY.require('evidence_bound_research'),max_model_calls=0)

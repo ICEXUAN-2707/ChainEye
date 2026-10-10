@@ -5,7 +5,9 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
-from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH,LEGACY_V2_AGENT_GRAPH
+from chain_eye.agents.graph import (
+    DEFAULT_AGENT_GRAPH,LEGACY_ARTIFACT_REPLAY_GRAPH,LEGACY_V2_AGENT_GRAPH,
+)
 from chain_eye.agents.policy import can_recover_interrupted_node
 from chain_eye.agents.spec import GraphSpec,NodeSpec,TransitionSpec
 from chain_eye.agents.state import AGENT_STATE_FIELDS
@@ -38,6 +40,10 @@ class AgentGraphSpec(unittest.TestCase):
         self.assertEqual(
             LEGACY_V2_AGENT_GRAPH.spec_sha256,
             '32fad023e9e89e0d71c6474d7312c030059e199916fcf5beda32fbe32291ef0b',
+        )
+        self.assertEqual(
+            LEGACY_ARTIFACT_REPLAY_GRAPH.spec_sha256,
+            'ab0b0ef151d1317afdf005919bcf2b14f25ecd2f33f91c7b1f9f98aa0a5780d8',
         )
 
     def test_graph_rejects_invalid_nodes_and_edges(self):

@@ -4,7 +4,9 @@ import time
 
 from pydantic import ValidationError
 
-from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH,LEGACY_V2_AGENT_GRAPH
+from chain_eye.agents.graph import (
+    DEFAULT_AGENT_GRAPH,LEGACY_ARTIFACT_REPLAY_GRAPH,LEGACY_V2_AGENT_GRAPH,
+)
 from chain_eye.agents.nodes import RunGraphNodeHandlers
 from chain_eye.agents.orchestrator import AgentOrchestrator
 from chain_eye.agents.policy import MAX_MODEL_CALLS,RUN_BUDGET_SECONDS
@@ -14,8 +16,8 @@ from chain_eye.application.errors import AppError
 from chain_eye.application.financials import FinancialService
 from chain_eye.application.reports import ReportService
 from chain_eye.application.run_manifest import (
-    ExecutionManifestError,build_execution_manifest,manifest_sha256,normalize_model_config,
-    resolve_execution_manifest,
+    ExecutionManifestError,build_execution_manifest,build_legacy_replay_manifest,
+    manifest_sha256,normalize_model_config,resolve_execution_manifest,
 )
 from chain_eye.application.run_tools import RunTools
 from chain_eye.application.scenarios import ScenarioExecutionService
@@ -66,13 +68,26 @@ class RunExecutionService(RunGraphNodeHandlers):
             skills=(self.financial_skill,self.research_skill,self.scenario_skill)
             if source is None:
                 config=self.model_config
-                manifest=build_execution_manifest(self.graph,self.claim_prompt,skills,self.tool_registry,config)
+                manifest=build_execution_manifest(
+                    self.graph,self.claim_prompt,skills,self.tool_registry,config,self.llm,
+                )
                 manifest_hash=manifest_sha256(manifest)
+                prompt_ref=manifest['prompt'];skill_refs=manifest['skills']
             else:
-                source_bindings=self._resolve_bindings(source,verify_current_model=False)
-                manifest=source['execution_manifest'];manifest_hash=source['execution_manifest_sha256']
-                config=source_bindings.model['public_config']
-            prompt_ref=manifest['prompt'];skill_refs=manifest['skills']
+                if source.get('execution_manifest') and source.get('execution_manifest_sha256'):
+                    source_bindings=self._resolve_bindings(source,verify_current_model=False)
+                    manifest=source['execution_manifest'];manifest_hash=source['execution_manifest_sha256']
+                    config=source_bindings.model['public_config']
+                    prompt_ref=manifest['prompt'];skill_refs=manifest['skills']
+                else:
+                    manifest=build_legacy_replay_manifest(LEGACY_ARTIFACT_REPLAY_GRAPH,source['id'])
+                    manifest_hash=manifest_sha256(manifest)
+                    config=source.get('model_config') or {}
+                    prompt_ref={
+                        'id':source.get('prompt_id'),'version':source.get('prompt_version') or 'unavailable',
+                        'sha256':source.get('prompt_sha256'),
+                    }
+                    skill_refs={}
             return self.repository.create_run(
                 request,idempotency_key,config,prompt_ref['version'],
                 prompt_id=prompt_ref['id'],prompt_sha256=prompt_ref['sha256'],
@@ -89,22 +104,26 @@ class RunExecutionService(RunGraphNodeHandlers):
             raise AppError('SCOPE_MISMATCH','回放源 Run 不属于相同数据快照',409)
         if source['status'] not in ('completed','partial'):
             raise AppError('INVALID_RUN_STATE','仅可回放已结束的 Run',409)
-        if not source.get('execution_manifest') or not source.get('execution_manifest_sha256'):
-            raise AppError(
-                'EXECUTION_VERSION_UNAVAILABLE','回放源 Run 缺少不可变执行版本清单',409,
-                details={'resource':'execution_manifest','source_run_id':source['id']},
-            )
         return source
 
     def _resolve_bindings(self,record,verify_current_model):
+        if not record.get('execution_manifest') or not record.get('execution_manifest_sha256'):
+            raise AppError(
+                'EXECUTION_VERSION_UNAVAILABLE','未结束的历史 Run 缺少不可变执行版本清单，不能安全续跑',409,
+                details={
+                    'resource':'execution_manifest','run_id':record.get('id'),
+                    'action':'drain_or_cancel_before_upgrade',
+                },
+            )
         try:
             bindings=resolve_execution_manifest(
                 record.get('execution_manifest'),record.get('execution_manifest_sha256'),
-                self.graph,LEGACY_V2_AGENT_GRAPH,
+                self.graph,LEGACY_V2_AGENT_GRAPH,LEGACY_ARTIFACT_REPLAY_GRAPH,
                 self.prompt_registry,self.skill_registry,self.tool_registry,
                 self.model_config if verify_current_model else None,
+                self.llm if verify_current_model else None,
             )
-            if record.get('model_config')!=bindings.model['public_config']:
+            if bindings.provenance_complete and record.get('model_config')!=bindings.model['public_config']:
                 raise ExecutionManifestError('persisted model configuration does not match the execution manifest')
             return bindings
         except ExecutionManifestError as exc:

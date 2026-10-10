@@ -53,3 +53,9 @@ DEFAULT_AGENT_GRAPH=GraphSpec(
 LEGACY_V2_AGENT_GRAPH=replace(
     DEFAULT_AGENT_GRAPH,id='chain-eye-r5-compat',version='manifest-v2',
 )
+
+# This graph identifies the present-day copy-only workflow for source Runs that
+# predate execution manifests. It does not claim knowledge of the source graph.
+LEGACY_ARTIFACT_REPLAY_GRAPH=replace(
+    DEFAULT_AGENT_GRAPH,id='chain-eye-legacy-artifact-replay',version='no-manifest-v1',
+)

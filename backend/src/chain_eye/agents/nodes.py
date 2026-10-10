@@ -48,6 +48,18 @@ class RunGraphNodeHandlers:
 
     def _run_plan(self,state):
         record=state.record;bindings=state.bindings
+        if not bindings.provenance_complete:
+            self._budget(state.started,record)
+            return NodeResult(condition='mode == replay',details={
+                'plan':['replay_validate','replay_copy','report_if_completed'],
+                'mode':'replay','execution_manifest_sha256':bindings.sha256,
+                'graph':{
+                    'id':bindings.graph.id,'version':bindings.graph.version,
+                    'spec_sha256':bindings.graph.spec_sha256,
+                },
+                'source_run_id':bindings.manifest['source_run_id'],
+                'provenance':bindings.manifest['provenance'],
+            })
         financial_skill=bindings.skills['financial_diagnosis']
         research_skill=bindings.skills['evidence_bound_research']
         scenario_skill=bindings.skills['scenario_impact'];claim_prompt=bindings.prompt;model_binding=bindings.model
@@ -82,7 +94,11 @@ class RunGraphNodeHandlers:
             ],
             'model':{
                 key:model_binding[key]
-                for key in ('provider','model','adapter_version','endpoint','public_config_sha256')
+                for key in (
+                    'provider','model','adapter_version','endpoint','public_config_sha256',
+                    'implementation_id','implementation_sha256',
+                )
+                if key in model_binding
             },
         })
 
@@ -217,6 +233,8 @@ class RunGraphNodeHandlers:
                         'status':'failed','provider':model_binding['provider'],
                         'model':model_binding['model'],'adapter_version':model_binding['adapter_version'],
                         'endpoint':model_binding['endpoint'],'public_config_sha256':model_binding['public_config_sha256'],
+                        'model_implementation_id':model_binding.get('implementation_id'),
+                        'model_implementation_sha256':model_binding.get('implementation_sha256'),
                         'skill_id':research_skill.id,'skill_version':research_skill.version,
                         'skill_spec_sha256':research_skill.spec_sha256,
                         'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
@@ -233,6 +251,8 @@ class RunGraphNodeHandlers:
                     'status':'failed','provider':generation.provider,'model':generation.model,
                     'adapter_version':model_binding['adapter_version'],'endpoint':model_binding['endpoint'],
                     'public_config_sha256':model_binding['public_config_sha256'],
+                    'model_implementation_id':model_binding.get('implementation_id'),
+                    'model_implementation_sha256':model_binding.get('implementation_sha256'),
                     'skill_id':research_skill.id,'skill_version':research_skill.version,
                     'skill_spec_sha256':research_skill.spec_sha256,
                     'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
@@ -252,6 +272,8 @@ class RunGraphNodeHandlers:
                 'status':'completed','provider':generation.provider,'model':generation.model,
                 'adapter_version':model_binding['adapter_version'],'endpoint':model_binding['endpoint'],
                 'public_config_sha256':model_binding['public_config_sha256'],
+                'model_implementation_id':model_binding.get('implementation_id'),
+                'model_implementation_sha256':model_binding.get('implementation_sha256'),
                 'skill_id':research_skill.id,'skill_version':research_skill.version,
                 'skill_spec_sha256':research_skill.spec_sha256,
                 'prompt_id':claim_prompt.id,'prompt_version':claim_prompt.version,
@@ -385,11 +407,23 @@ class RunGraphNodeHandlers:
     def _run_replay_validate(self,state):
         source=self.repository.get_run_record(state.request.replay_run_id)
         if source is None:raise AppError('NOT_FOUND','回放源 Run 不存在',404)
-        source_bindings=self._resolve_bindings(source,verify_current_model=False)
-        if source_bindings.sha256!=state.bindings.sha256:
-            raise AppError('EXECUTION_VERSION_UNAVAILABLE','回放 Run 与源 Run 的执行版本清单不一致',409)
+        if state.bindings.provenance_complete:
+            source_bindings=self._resolve_bindings(source,verify_current_model=False)
+            if source_bindings.sha256!=state.bindings.sha256:
+                raise AppError('EXECUTION_VERSION_UNAVAILABLE','回放 Run 与源 Run 的执行版本清单不一致',409)
+        elif (
+            state.bindings.manifest['source_run_id']!=source['id']
+            or source.get('execution_manifest') is not None
+            or source.get('execution_manifest_sha256') is not None
+        ):
+            raise AppError(
+                'EXECUTION_VERSION_UNAVAILABLE','历史回放源与不完整 provenance 清单不一致',409,
+            )
         state.artifacts['source']=source
-        return NodeResult(condition='completed',details={'source_run_id':source['id']})
+        return NodeResult(condition='completed',details={
+            'source_run_id':source['id'],
+            'provenance_status':'complete' if state.bindings.provenance_complete else 'incomplete',
+        })
 
     def _run_replay_copy(self,state):
         source=state.artifacts['source'];finalizing=source['status']=='completed'
