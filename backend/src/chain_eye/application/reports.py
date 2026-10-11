@@ -145,6 +145,8 @@ class ReportService:
         limitations=[f"报告绑定数据快照 {record['dataset_id']}@{record['dataset_version']}，不会跟随最新事实静默变化。"]
         if record['mode']=='replay':
             limitations.append(f'本报告来自回放 Run；数字和引用复用源 Run {record["request"]["replay_run_id"]}，不承诺模型逐字复现。')
+            if (record.get('execution_manifest') or {}).get('schema_version')=='legacy-replay-1':
+                limitations.append('源 Run 创建于执行清单机制之前；Prompt、Skill、Tool 与模型实现 provenance 不完整，未事后伪造哈希。')
         if any(claim.review_status=='pending' for claim in claims):limitations.append('pending Claim 已通过引用存在性与数字对照，关键结论仍需人工支持性复核。')
         excluded_insufficient=sum(claim.review_status=='insufficient' for claim in all_claims)
         excluded_rejected=sum(claim.review_status=='rejected' for claim in all_claims)

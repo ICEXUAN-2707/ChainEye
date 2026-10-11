@@ -15,15 +15,30 @@ from chain_eye.tools.spec import ToolContext,ToolFailure,ToolSpec
 
 
 class AgentRegistries(unittest.TestCase):
-    def test_default_tool_registry_is_the_single_six_tool_source(self):
+    def test_default_tool_registry_is_the_single_agent_and_mcp_tool_source(self):
         self.assertEqual(TOOL_NAMES,frozenset({
             'search_documents','get_evidence','get_facts','compute_financials',
             'compute_scenario','validate_claims',
         }))
-        self.assertEqual(DEFAULT_TOOL_REGISTRY.names,TOOL_NAMES)
+        self.assertEqual(DEFAULT_TOOL_REGISTRY.names,TOOL_NAMES|{'get_run_trace','get_report'})
         self.assertIn('mcp',DEFAULT_TOOL_REGISTRY.require('get_facts').allowed_callers)
+        self.assertEqual(DEFAULT_TOOL_REGISTRY.require('get_report').allowed_callers,frozenset({'mcp'}))
         self.assertNotIn('mcp',DEFAULT_TOOL_REGISTRY.require('compute_financials').allowed_callers)
         with self.assertRaises(ValueError):ToolRegistry([])
+
+    def test_mcp_boundary_does_not_change_existing_agent_tool_implementations(self):
+        expected={
+            'compute_financials':'390c7707e90eae88aa9f6fdcb39319d0988c22437994525a5f4101ac5be7b3b7',
+            'compute_scenario':'9f8c293aabaac8bab3c749cab091a4508117a67e9865649e1747f5e12a922127',
+            'get_evidence':'e5de190400ca5c0da383c1983c354052271f7cb1c058b1e77baac12fb6d99fac',
+            'get_facts':'4cb30ad06e6a9257a3c16a6bd690825f9fcc69914eeaa63bbe0c7849a02faa9d',
+            'search_documents':'9c77aa246678f5990c424787d482351536d73f2e3e8abecbadbbfd1accdb14be',
+            'validate_claims':'6207cc282a7a0d97c2cffc7361e39a791412a5b24cc337cbd9f3f3db5bf39adf',
+        }
+        self.assertEqual({
+            name:DEFAULT_TOOL_REGISTRY.require(name).implementation_sha256
+            for name in expected
+        },expected)
 
     def test_tool_registry_rejects_duplicates_callers_and_skill_escape(self):
         spec=ToolSpec('read','1','read',frozenset({'agent'}),1,'read',lambda context:None,'test.read.v1')

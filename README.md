@@ -20,6 +20,19 @@ python tools/start_backend.py
 ```
 `tools/start_backend.py`会显式加载仓库根目录的`.env`，但不会覆盖启动进程中已经设置的同名环境变量。复制`.env.example`为`.env`后填写`DEEPSEEK_API_KEY`即可；默认模型为`deepseek-flash`，密钥和`.env`不得提交。
 
+DeepSeek 的真实调用链为：`tools/start_backend.py` 加载 `.env` → `api/app.py` 创建 `DeepSeekAdapter` → live Run 的 research 节点调用 `llm.generate()` → `adapters/deepseek.py` 向 `https://api.deepseek.com/chat/completions` 发起 POST。只有 live Run 到达 research 节点且存在密钥时才产生真实请求；replay 不调用模型，`tools/smoke_local.py` 会主动移除密钥并验证 `MODEL_UNAVAILABLE` 边界。官方 Chat Completions 与 JSON Output 文档当前均列出 `deepseek-flash`。本地无费用验证可运行 `python -m unittest tests.test_r4_runs.DeepSeekBoundary -v`；该测试 mock HTTP，不证明密钥、余额或线上服务可用。真实验证必须由人工配置密钥后创建 live Run，并在 Run events 中核对 `llm_call` 的 provider、model、request_id、usage、实现摘要与状态；真实调用可能产生费用，不进入普通 CI。
+
+## MCP 只读接口
+
+MCP MVP 使用官方 Python SDK 和 stdio 传输，与 Agent 共用 Tool Registry，不创建第二套业务实现。它只发布 `get_facts`、`get_evidence`、`search_documents`、`get_run_trace` 和 `get_report`；不暴露写操作、任意文件、SQL、shell、网络或模型调用。Dataset 读取必须指定版本，MCP 读取不写入 Run trace，也不会调用 DeepSeek。API 与 MCP 共用 `.runtime/chain_eye.sqlite` 默认路径；MCP 以 SQLite `mode=ro` 和 `query_only` 打开数据库，只校验迁移而不创建目录、数据库或迁移，缺库和版本不兼容会明确失败。外部 Run trace 按事件类型筛选字段，并对嵌套密钥、token、cookie、header 及常见 secret 值模式做防御性脱敏。
+
+```bash
+PYTHONPATH=backend/src python -m chain_eye.mcp.server
+PYTHONPATH=backend/src python tools/mcp_smoke.py
+```
+
+Windows PowerShell 先设置 `$env:PYTHONPATH="backend/src"`。第一条命令由 MCP client 通过 stdio 管理，只读访问已由后端初始化且迁移完整的本地数据库，不自动 seed 演示数据，也不应在 stdout 写入其他日志；第二条会显式创建或复用隔离的 smoke 数据库，然后启动真实子进程，验证初始化、列举、版本化 Dataset/Evidence 读取、Prompt/Skill 元数据与正常退出。传入 `--run-id <已完成Run>` 时另外验证已持久化的 trace 和 report。
+
 另一个终端：
 ```bash
 cd frontend
@@ -27,7 +40,7 @@ npm ci
 npm run dev
 ```
 访问 http://127.0.0.1:5173 ，API在 http://127.0.0.1:8000 ，接口文档 `/docs`。
-Windows PowerShell激活 `.venv\Scripts\Activate.ps1`；运行下面测试时设置 `$env:PYTHONPATH="backend/src"`。Windows已验证全量测试、构建和真实本地HTTP冒烟；可见浏览器界面仍需人工复核。
+Windows PowerShell激活 `.venv\Scripts\Activate.ps1`；运行下面测试时设置 `$env:PYTHONPATH="backend/src"`。Windows已验证全量测试、构建和真实本地HTTP冒烟；可见浏览器界面仍需人工复核。`tools/smoke_local.py` 会先拒绝已占用的 8000/5173 端口，在临时数据库和上传目录中运行，以启动 nonce 和子进程存活状态确认服务归属，并通过 `CHAIN_EYE_DISABLE_MODEL=1` 强制关闭付费模型；它不会写入默认 `.runtime/chain_eye.sqlite`。
 只允许本机访问；R1不能直接部署公网。SQLite保存在 `.runtime/`，删除该目录会清除本地数据，不影响打包原件。
 
 ## 复核与契约生成

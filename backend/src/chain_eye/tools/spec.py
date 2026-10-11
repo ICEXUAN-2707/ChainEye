@@ -59,9 +59,9 @@ class ToolSpec:
 @dataclass(frozen=True)
 class ToolContext:
     repository:object
-    financial_service:object
-    scenario_service:object
-    run_id:str
+    financial_service:object|None
+    scenario_service:object|None
+    run_id:str|None
     dataset_id:str
     dataset_version:int
     clock:Callable[[],float]
@@ -83,3 +83,7 @@ class ToolContext:
     def check_budget(self):
         if self.deadline is not None and self.clock()>self.deadline:
             raise ToolFailure('tool time budget exceeded')
+
+    def record_tool_event(self,node,record):
+        if self.run_id is not None:
+            self.repository.append_event(self.run_id,'tool_call',node,record)

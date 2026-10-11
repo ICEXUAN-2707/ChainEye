@@ -8,7 +8,7 @@ Ice/Codex：统筹架构与接口、企业/行业配置、OCR/解析、数据事
 ## 分支
 main=稳定版；短期 chore/refactor/feat=可独立审查任务；release/phase2-v0.1=冻结验收候选；fix/*=缺陷。若当前仓库已有等价分支，先映射不重复建。
 
-本轮从最新稳定 `main@c764218` 创建 `chore/p2-agent-baseline`，先完成不改变行为的现状与交付边界。随后依次进行 Registry、Orchestrator、MCP、原生复现，每个 PR 合并后后一分支才基于最新集成基线建立。共享 `develop` 只在团队确认 Phase 1 正式冻结并决定启用后创建一次；在此之前不伪造 frozen 状态，也不把未合并的前置实现当成后续基线。
+G1、G2 已依次合并到 `main@128f2c7`；团队随后从该提交建立共享 `develop`。G3 起的 Phase 2 短期分支从最新 `develop` 创建并通过 PR 回到 `develop`，不得再直接进入 `main`。建立 `develop` 不等于助手代签 Phase 1 人工冻结，验收记录中的 `candidate_pending_manual` 与人工待办继续保留。
 
 所有任务完成后从集成基线建立 release，修复 PR 进 release 并及时同步开发线；完整验收后 release PR 到 main，tag 与验收 commit 一致。尚未完成任务不得混入 release。
 禁止强推共享分支/覆盖历史/未经验证把feature直接进main。个人feature同步develop可merge，冲突解释并解决后回归。生成文件冲突先修权威模型再生成。
@@ -18,7 +18,7 @@ main=稳定版；短期 chore/refactor/feat=可独立审查任务；release/phas
 |---|---|---|---|
 |Agent 基线|chore/p2-agent-baseline|chore/p2-ui-audit|现状、交付结构、接口样例与错误对齐|
 |Registry|refactor/p2-agent-registries|无前端业务修改|Tool/Prompt/Skill 单一注册源|
-|编排|refactor/p2-agent-orchestrator|按已审契约展示 trace|显式 graph/state/node 与旧 Run 回归|
+|编排|feat/p2-agent-orchestrator|按已审契约展示 trace|显式 graph/state/node 与旧 Run 回归|
 |MCP|feat/p2-mcp-mvp|无前端业务修改|stdio 协议、只读资源/工具、真实 smoke|
 |原生复现|feat/p2-native-reproduction|补充前端启动/验收说明|Windows/Ubuntu 命令、日志与 trace 导出|
 |企业|feat/p2-company-core|feat/p2-company-ui|上传→确认→新版Dataset|

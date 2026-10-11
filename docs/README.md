@@ -10,7 +10,7 @@
 
 ## Phase 1 基线状态
 
-截至 2026-10-08，远端 `main` 为 `c7642185458a37719ca210a08b7cd8e18f3e129a`。PR #8、#12—#17 已合并；Vite 锁定为 `7.3.7`，PR17 补齐诊断比较、数据集身份、PDF CJK 字体发现/子集嵌入及相应回归测试。
+Phase 1 的自动化冻结候选仍以 `main@c7642185458a37719ca210a08b7cd8e18f3e129a` 记录。此后 PR #18、#19 已继续进入主线；当前远端 `main@128f2c7e25a3a9e9745ded1da7742ff556f31e2b` 已包含 Phase 2 Agent 基线与 Registry。该技术演进不代替 Phase 1 人工冻结门槛，也不把新主线提交追认为已签核的 Phase 1 冻结点。
 
 该提交上的 141 项后端测试、30 条 fixture/4 项毛利基线检查、契约生成零漂移、前端干净安装、28 项前端测试、生产构建和真实本地 HTTP 冒烟均通过；PR17 对应的 `main` GitHub Actions 也已成功。当前状态仍是 `candidate_pending_manual`，不是正式 `frozen`：可见浏览器、报告下载、关键结论支持性、团队财务签核和第二位开发者独立复现仍必须由实际执行者补充证据。
 
@@ -18,4 +18,4 @@
 
 ## Phase 2 分支入口
 
-Phase 2 当前只从稳定 `main` 开展 Agent 基线、Registry、Orchestrator、MCP 与原生复现的独立短期 PR；不因此代签 Phase 1 人工门槛或伪造正式冻结。共享 `develop` 仅在团队决定启用并得到唯一冻结提交后建立一次。完整顺序见 `Phase_2/docs/07_剩余任务执行计划.md`。
+团队已从 `main@128f2c7e25a3a9e9745ded1da7742ff556f31e2b` 建立共享 `develop`，后续 Phase 2 短期分支从该分支创建并回到 `develop`。建立分支这一事实不代签 Phase 1 财务签核、独立复现或浏览器验收；正式冻结字段仍以验收记录为准。完整顺序见 `Phase_2/docs/07_剩余任务执行计划.md`。

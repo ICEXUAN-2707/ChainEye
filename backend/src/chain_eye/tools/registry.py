@@ -14,9 +14,11 @@ from chain_eye.tools.handlers import claims as claims_module
 from chain_eye.tools.handlers import evidence as evidence_module
 from chain_eye.tools.handlers import financials as financial_handler_module
 from chain_eye.tools.handlers import scenario as scenario_handler_module
+from chain_eye.tools.handlers import run_reads as run_reads_module
 from chain_eye.tools.handlers.claims import validate_claims
 from chain_eye.tools.handlers.evidence import get_evidence,get_facts,search_documents
 from chain_eye.tools.handlers.financials import compute_financials
+from chain_eye.tools.handlers.run_reads import get_report,get_run_trace
 from chain_eye.tools.handlers.scenario import compute_scenario
 from chain_eye.tools.spec import ToolContext,ToolFailure,ToolSpec
 
@@ -91,6 +93,8 @@ class ToolRegistry:
         if spec_sha256 is not None and spec.spec_sha256!=spec_sha256:
             raise ToolFailure(f'tool hash mismatch: {name}@{spec.version}')
         if caller not in spec.allowed_callers:raise ToolFailure(f'tool is not allowed for caller: {caller}')
+        if caller=='agent' and context.run_id is None:raise ToolFailure('agent tool calls require a run')
+        if caller=='mcp' and context.run_id is not None:raise ToolFailure('MCP tool calls cannot mutate run traces')
         if allowed_tools is not None and name not in allowed_tools:
             raise ToolFailure(f'tool is not allowed by skill: {name}')
         started=datetime.now(timezone.utc).isoformat();start=context.clock();call_id=str(uuid4())
@@ -108,11 +112,11 @@ class ToolRegistry:
             output=spec.handler(active,**arguments);active.check_budget()
             output_value,output_hash=_event_value(output)
             record.update(output=output_value,output_sha256=output_hash,status='completed',ended_at=datetime.now(timezone.utc).isoformat())
-            context.repository.append_event(context.run_id,'tool_call',name,record)
+            context.record_tool_event(name,record)
             return output
         except Exception as exc:
             record.update(status='failed',error={'code':'TOOL_FAILED','message':str(exc)[:500]},ended_at=datetime.now(timezone.utc).isoformat())
-            context.repository.append_event(context.run_id,'tool_call',name,record)
+            context.record_tool_event(name,record)
             raise
 
 
@@ -120,8 +124,17 @@ DEFAULT_TOOL_REGISTRY=ToolRegistry([
     ToolSpec('search_documents','1','Search evidence in the bound dataset snapshot.',frozenset({'agent','mcp'}),TOOL_TIMEOUT_SECONDS,'read',search_documents,'chain-eye.search-documents.v1',(evidence_module,)),
     ToolSpec('get_evidence','1','Read evidence by ID from the bound dataset snapshot.',frozenset({'agent','mcp'}),TOOL_TIMEOUT_SECONDS,'read',get_evidence,'chain-eye.get-evidence.v1',(evidence_module,)),
     ToolSpec('get_facts','1','Read facts from the bound dataset snapshot.',frozenset({'agent','mcp'}),TOOL_TIMEOUT_SECONDS,'read',get_facts,'chain-eye.get-facts.v1',(evidence_module,)),
+    ToolSpec('get_run_trace','1','Read the event trace of a local Run without mutating it.',frozenset({'mcp'}),TOOL_TIMEOUT_SECONDS,'read',get_run_trace,'chain-eye.get-run-trace.v1',(run_reads_module,)),
+    ToolSpec('get_report','1','Read an already persisted Run report without generating one.',frozenset({'mcp'}),TOOL_TIMEOUT_SECONDS,'read',get_report,'chain-eye.get-report.v1',(run_reads_module,)),
     ToolSpec('compute_financials','1','Run deterministic financial calculations.',frozenset({'agent'}),TOOL_TIMEOUT_SECONDS,'deterministic_write',compute_financials,'chain-eye.compute-financials.v1',(financial_handler_module,financials_module,financial_rules_module)),
     ToolSpec('compute_scenario','1','Run the deterministic scenario model.',frozenset({'agent'}),TOOL_TIMEOUT_SECONDS,'deterministic_write',compute_scenario,'chain-eye.compute-scenario.v1',(scenario_handler_module,scenarios_module,scenario_rules_module)),
     ToolSpec('validate_claims','1','Validate claim references and support status.',frozenset({'agent'}),TOOL_TIMEOUT_SECONDS,'read',validate_claims,'chain-eye.validate-claims.v1',(claims_module,)),
 ])
-TOOL_NAMES=DEFAULT_TOOL_REGISTRY.names
+TOOL_NAMES=frozenset(
+    name for name in DEFAULT_TOOL_REGISTRY.names
+    if 'agent' in DEFAULT_TOOL_REGISTRY.require(name).allowed_callers
+)
+MCP_TOOL_NAMES=frozenset(
+    name for name in DEFAULT_TOOL_REGISTRY.names
+    if 'mcp' in DEFAULT_TOOL_REGISTRY.require(name).allowed_callers
+)
