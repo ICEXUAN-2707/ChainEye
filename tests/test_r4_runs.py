@@ -620,6 +620,15 @@ class DeepSeekBoundary(unittest.TestCase):
         with patch.dict(os.environ,{'DEEPSEEK_MODEL':'configured-model'},clear=True):
             self.assertEqual(DeepSeekAdapter(api_key='test-only').model,'configured-model')
 
+    def test_explicit_model_disable_overrides_process_and_argument_keys(self):
+        with patch.dict(os.environ,{
+            'CHAIN_EYE_DISABLE_MODEL':'1','DEEPSEEK_API_KEY':'environment-secret',
+        },clear=True):
+            adapter=DeepSeekAdapter(api_key='argument-secret')
+            with patch('chain_eye.adapters.deepseek.httpx.post') as posted:
+                with self.assertRaises(ModelUnavailable):self.generate(adapter)
+            posted.assert_not_called()
+
     def test_timeout_maps_to_retryable_unavailable(self):
         adapter=DeepSeekAdapter(api_key='test-only')
         with patch('chain_eye.adapters.deepseek.httpx.post',side_effect=TimeoutError()):

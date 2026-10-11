@@ -15,8 +15,13 @@ from chain_eye.domain.scenario import (
 )
 
 class SQLiteRepository:
-    def __init__(self,path,project_root,upload_root=None):
+    def __init__(self,path,project_root,upload_root=None,read_only=False):
         self.path=Path(path);self.root=Path(project_root);self.upload_root=Path(upload_root or self.root/'.runtime/sources')
+        self.read_only=bool(read_only)
+        if self.read_only:
+            if not self.path.is_file():raise FileNotFoundError(f'ChainEye database does not exist: {self.path}')
+            self._validate_migrations()
+            return
         self.path.parent.mkdir(parents=True,exist_ok=True);self.upload_root.mkdir(parents=True,exist_ok=True)
         with self.connect() as db:
             db.execute('PRAGMA journal_mode=WAL')
@@ -25,9 +30,29 @@ class SQLiteRepository:
                 sha=hashlib.sha256(p.read_bytes()).hexdigest();row=db.execute('SELECT sha256 FROM migrations WHERE name=?',(p.name,)).fetchone()
                 if row and row[0]!=sha: raise RuntimeError('applied migration modified')
                 if not row:db.executescript(p.read_text(encoding='utf-8'));db.execute('INSERT INTO migrations VALUES (?,?)',(p.name,sha))
+
+    def _expected_migrations(self):
+        return {
+            path.name:hashlib.sha256(path.read_bytes()).hexdigest()
+            for path in sorted((self.root/'backend/migrations').glob('*.sql'))
+        }
+
+    def _validate_migrations(self):
+        expected=self._expected_migrations()
+        try:
+            with self.connect() as db:
+                actual=dict(db.execute('SELECT name,sha256 FROM migrations').fetchall())
+        except sqlite3.DatabaseError as exc:
+            raise RuntimeError('ChainEye database is not initialized') from exc
+        if actual!=expected:raise RuntimeError('ChainEye database migrations are not current')
+
     @contextmanager
     def connect(self):
-        db=sqlite3.connect(self.path,timeout=10);db.execute('PRAGMA foreign_keys=ON')
+        if self.read_only:
+            db=sqlite3.connect(self.path.resolve().as_uri()+'?mode=ro',timeout=10,uri=True)
+            db.execute('PRAGMA query_only=ON')
+        else:db=sqlite3.connect(self.path,timeout=10)
+        db.execute('PRAGMA foreign_keys=ON')
         try:
             with db:yield db
         finally:db.close()
