@@ -1,6 +1,6 @@
 # Agent 内核与 MCP 实施计划
 
-状态：`g4_implemented_pending_pr_review`。A0—A2 已进入 `develop@0d74837`，A3 MCP MVP 已在 `feat/p2-mcp-mvp` 完成本地实现与验收，待 PR CI 和第二位开发者互审；A4 及之后内容仍为计划。
+状态：`g4_remediated_pending_ci_review`。A0—A2 已进入 `develop@0d74837`，A3 MCP MVP 已在 `feat/p2-mcp-mvp` 完成本地实现、审查修复与验收；PR #21 已改以 `develop` 为 base，仍须完成在线 CI、第二位开发者复现和互审。A4 及之后内容仍为计划。
 
 ## 产品目标
 
@@ -67,7 +67,7 @@ MCP server 通过 `python -m chain_eye.mcp.server` 启动，仅 stdio。协议�
 
 外部 MCP 默认只读；内部 ToolRegistry 可以包含确定性计算工具，但 MCP allowlist 与 Agent allowlist 分开声明。禁止任意 shell/SQL/文件路径/网络工具，禁止直接接收或写入模型密钥，禁止代表人工完成 `verified`。
 
-已实现的 A3 使用官方 `mcp==2.3.0`，暴露 `get_facts`、`get_evidence`、`search_documents`、`get_run_trace`、`get_report` 五个只读 Tool，以及 Dataset version、Evidence、Run trace、Report、Skill metadata 资源。Prompt 来自现有 Prompt/Skill Registry，只返回版本内容和哈希，不调用模型。所有 MCP 输出有大小上限与敏感键脱敏；调用不带 Run 写入上下文，因此不会污染 trace。
+已实现的 A3 使用官方 `mcp==2.3.0`，暴露 `get_facts`、`get_evidence`、`search_documents`、`get_run_trace`、`get_report` 五个只读 Tool，以及 Dataset version、Evidence、Run trace、Report、Skill metadata 资源。Prompt 来自现有 Prompt/Skill Registry，只返回版本内容和哈希，不调用模型。MCP 与 API 共用默认数据库路径，并以 SQLite 真只读模式打开；缺库或迁移不一致 fail closed。所有 MCP 输出有大小上限，Run trace 使用事件字段白名单、嵌套敏感键和值模式脱敏；调用不带 Run 写入上下文，因此不会污染 trace。
 
 ## A4 日志与复现
 

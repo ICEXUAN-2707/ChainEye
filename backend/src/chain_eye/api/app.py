@@ -22,13 +22,13 @@ from chain_eye.application.runs import RunExecutionService,RunWorker
 from chain_eye.application.reports import ReportService
 from chain_eye.reporting.markdown import render_markdown
 from chain_eye.reporting.pdf import render_pdf
+from chain_eye.config import PROJECT_ROOT as ROOT,database_path,upload_root
 
-ROOT=Path(__file__).resolve().parents[4]
 RESPONSES={n:{'model':ErrorResponse,'description':t} for n,t in [(403,'local access only'),(404,'not found'),(409,'conflict'),(422,'invalid input'),(429,'budget exceeded'),(500,'internal failure'),(503,'provider unavailable')]}
 
 def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
     if os.getenv('CHAIN_EYE_MODE','local')!='local': raise RuntimeError('R1 supports local mode only; public authentication not implemented')
-    repo=SQLiteRepository(db_path or os.getenv('CHAIN_EYE_DB',str(ROOT/'.runtime/chain_eye.sqlite')),ROOT,upload_dir)
+    repo=SQLiteRepository(database_path(db_path),ROOT,upload_root(upload_dir))
     if seed:repo.seed()
     uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo)
     runs=RunExecutionService(repo,llm or DeepSeekAdapter());reports=ReportService(repo);worker=RunWorker(repo,runs)
@@ -69,7 +69,11 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
         if not v:raise AppError('NOT_FOUND','资源不存在',404)
         return v
     @app.get('/health',operation_id='health')
-    def health():return {'status':'ok','stage':'R5','mode':'local','schema_version':'0.4.0','data_basis':'reviewed_fixture_and_user_upload'}
+    def health():
+        result={'status':'ok','stage':'R5','mode':'local','schema_version':'0.4.0','data_basis':'reviewed_fixture_and_user_upload'}
+        nonce=os.getenv('CHAIN_EYE_INSTANCE_NONCE')
+        if nonce:result['instance_nonce']=nonce
+        return result
     @app.post('/api/v1/datasets',response_model=Dataset,status_code=201,responses=RESPONSES,operation_id='createDataset')
     def create_dataset(body:DatasetCreate):return repo.create(body)
     @app.get('/api/v1/datasets',response_model=DatasetCollection,responses=RESPONSES,operation_id='listDatasets')

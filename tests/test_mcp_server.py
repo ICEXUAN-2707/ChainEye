@@ -115,5 +115,26 @@ class MCPServerSurface(unittest.IsolatedAsyncioTestCase):
         after=self.repo.list_run_events(run_id,0,200)[0]
         self.assertEqual([item.model_dump() for item in after],[item.model_dump() for item in before])
 
+    async def test_trace_whitelists_payload_and_redacts_nested_secret_variants(self):
+        run_id=create_completed_run(self.repo,'mcp-redaction-run')
+        self.repo.append_event(run_id,'llm_call','research',{
+            'status':'failed','provider':'deepseek','model':'deepseek-flash',
+            'DEEPSEEK_API_KEY':'sk-top-secret','unexpected':'must-not-leave',
+            'error':{
+                'code':'MODEL_UNAVAILABLE','access_token':'token-leaked',
+                'nested':{'client-secret':'secret-leaked'},
+                'message':'Authorization: Bearer abc.def and key sk-abcdef123456',
+            },
+        })
+        async with Client(self.server,mode='legacy') as client:
+            trace=await client.call_tool('get_run_trace',{'run_id':run_id,'limit':200})
+        self.assertFalse(trace.is_error)
+        rendered=json.dumps(trace.structured_content,ensure_ascii=False)
+        for secret in ('sk-top-secret','token-leaked','secret-leaked','abc.def','sk-abcdef123456'):
+            self.assertNotIn(secret,rendered)
+        self.assertNotIn('DEEPSEEK_API_KEY',rendered)
+        self.assertNotIn('unexpected',rendered)
+        self.assertIn('[REDACTED]',rendered)
+
 
 if __name__=='__main__':unittest.main()

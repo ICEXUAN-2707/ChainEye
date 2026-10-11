@@ -1,5 +1,8 @@
 {
   "status": "passed",
+  "isolated_runtime": true,
+  "startup_nonce_verified": true,
+  "paid_model_calls": false,
   "real_http": true,
   "frontend_html": true,
   "cors": true,

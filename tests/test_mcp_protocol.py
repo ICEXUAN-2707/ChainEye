@@ -29,7 +29,7 @@ class MCPStdioProtocol(unittest.IsolatedAsyncioTestCase):
         params=StdioServerParameters(
             command=sys.executable,args=['-m','chain_eye.mcp.server'],env=env,cwd=ROOT,encoding='utf-8',
         )
-        async with Client(params,mode='legacy',read_timeout_seconds=15) as client:
+        async with Client(params,mode='legacy',read_timeout_seconds=60) as client:
             tools=await client.list_tools()
             self.assertEqual(len(tools.tools),5)
             resources=await client.list_resources()

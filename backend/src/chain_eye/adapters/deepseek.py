@@ -19,7 +19,8 @@ class DeepSeekAdapter:
     endpoint='https://api.deepseek.com/chat/completions'
 
     def __init__(self,api_key=None,model=None,timeout_seconds=60):
-        self._api_key=api_key if api_key is not None else os.getenv('DEEPSEEK_API_KEY')
+        disabled=os.getenv('CHAIN_EYE_DISABLE_MODEL','').casefold() in {'1','true','yes'}
+        self._api_key=None if disabled else (api_key if api_key is not None else os.getenv('DEEPSEEK_API_KEY'))
         self.model=model or os.getenv('DEEPSEEK_MODEL') or 'deepseek-flash'
         self.timeout_seconds=timeout_seconds
 

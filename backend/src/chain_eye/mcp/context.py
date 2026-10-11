@@ -1,20 +1,15 @@
 """Repository and snapshot context assembly for MCP calls."""
-import os
 import time
-from pathlib import Path
 
 from chain_eye.adapters.sqlite import SQLiteRepository
+from chain_eye.config import PROJECT_ROOT as ROOT,database_path
 from chain_eye.tools.spec import ToolContext,ToolFailure
 
-ROOT=Path(__file__).resolve().parents[4]
-
-
 def build_repository(db_path=None,seed=True):
+    import os
     if os.getenv('CHAIN_EYE_MODE','local')!='local':
         raise RuntimeError('ChainEye MCP supports local mode only')
-    repository=SQLiteRepository(
-        db_path or os.getenv('CHAIN_EYE_DB',str(ROOT/'.runtime/chain-eye.sqlite')),ROOT,
-    )
+    repository=SQLiteRepository(database_path(db_path),ROOT,read_only=not seed)
     if seed:repository.seed()
     return repository
 

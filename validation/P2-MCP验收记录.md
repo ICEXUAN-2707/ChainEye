@@ -3,7 +3,7 @@
 日期：2026-10-10
 分支：`feat/p2-mcp-mvp`
 基线：`develop@0d74837`
-状态：本地实现与自动化检查通过；PR CI、第二位开发者独立复现和真实互审待执行。
+状态：本地实现、审查修复与自动化检查通过；PR #21 已改以 `develop` 为 base，在线 CI、第二位开发者独立复现和真实互审待执行。
 
 ## 本轮交付
 
@@ -48,3 +48,13 @@ PowerShell 执行时使用 `$env:PYTHONPATH="backend/src"`。
 - 本轮不包含 G5 统一 JSONL logging、preflight/bootstrap/start_all/replay/trace 复现链。
 - 尚未由第二位开发者在独立环境复现，也不代签 PR 互审、财务签核或可见浏览器验收。
 - 第二企业与 OCR 仍在 G6/G7，本轮未越界实现。
+
+## 2026-10-11 审查修复复验
+
+- API 与 MCP 改用 `chain_eye.config` 的同一默认数据库 `.runtime/chain_eye.sqlite`；真实测试证明无 `CHAIN_EYE_DB` 时 MCP 能读取 API 已初始化的数据。
+- MCP 使用 SQLite `mode=ro` 与 `query_only`，只核对迁移集合及哈希；缺库、未初始化或迁移不一致明确失败，不创建数据库、上传目录或迁移。
+- 外部 Run trace 先按事件类型执行 payload 字段白名单，再递归移除大小写/连字符变体的 API key、token、secret、cookie、header 等键，并裁剪 Bearer 与 `sk-*` 值模式。
+- HTTP smoke 在启动前拒绝占用端口，使用临时数据库和上传目录，核对启动 nonce 与两个子进程存活，并以 `CHAIN_EYE_DISABLE_MODEL=1` 强制禁止模型调用。默认运行库复验前后均为 48 个 Dataset、34 个 Run，文件 SHA256 均为 `0CEEE055F24B9ED15499FDC9E278B8A0B4025FCB4C3FA154C356B9133267D870`。
+- MCP stdio deadline 从 15 秒提高到 60 秒；CI 增加 Ubuntu/Windows 矩阵，单 job timeout 为 30 分钟。Windows 在线 job 只有推送后才能确认，本记录不将其写成通过。
+
+本次本地真实结果：后端 188 项通过（157.056 秒）；基线通过；契约 0.4.0 重生成无漂移；`pip check` 无破损；前端 28 项、TypeScript 和 Vite build 通过；隔离 HTTP smoke 通过且 `paid_model_calls=false`；MCP 基础 smoke 与带持久化完成 Run 的 trace/report smoke 均通过。PR #21 已改以 `develop` 为 base，仍须完成在线 CI 和另一位开发者互审。
