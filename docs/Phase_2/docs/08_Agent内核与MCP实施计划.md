@@ -1,6 +1,6 @@
 # Agent 内核与 MCP 实施计划
 
-状态：`g4_remediated_pending_ci_review`。A0—A2 已进入 `develop@0d74837`，A3 MCP MVP 已在 `feat/p2-mcp-mvp` 完成本地实现、审查修复与验收；PR #21 已改以 `develop` 为 base，仍须完成在线 CI、第二位开发者复现和互审。A4 及之后内容仍为计划。
+状态：`g5_local_validated_pending_ci_review`。A0—A3 已进入 `develop@f1923d0`；A4 原生复现已在 `feat/p2-native-reproduction` 完成本地实现与 Windows 自动化验收，仍须远端 Ubuntu/Windows CI、第二位开发者复现和互审。B1 及之后内容仍为计划。
 
 ## 产品目标
 
@@ -73,7 +73,7 @@ MCP server 通过 `python -m chain_eye.mcp.server` 启动，仅 stdio。协议�
 
 JSONL 日志至少包含 `timestamp`、`level`、`request_id`、`run_id`、`node`、`skill_id`、`tool_call_id`、`prompt_version`、`model`、`duration_ms`、`status`、`error_code`。禁止记录 API key、Authorization、完整环境变量、无界 PDF 文本或未经裁剪的完整模型请求。
 
-计划统一命令：
+已实现的统一命令：
 
 ```text
 python tools/preflight.py
@@ -84,6 +84,8 @@ python tools/mcp_smoke.py
 ```
 
 Ubuntu CI 跑完整无付费门禁；Windows CI 至少跑依赖安装、后端测试、契约漂移、前端构建、MCP smoke 和 replay。Python 固定 3.12、Node 固定 24、UTF-8 显式开启。
+
+当前 A4 的 replay 会在隔离数据库中真实执行一个禁用模型的 live Run；该 Run 在确定性财务步骤后以 `partial / MODEL_UNAVAILABLE` 结束，再由 replay 绑定其不可变执行清单和已保存产物。输出明确标记 `saved_run_artifacts_only`、`paid_model_calls=false` 和 `replay_model_calls=0`，不把无密钥流程写成 completed 或 report 成功。结构化日志覆盖 HTTP、Agent node、Tool 与 Run 生命周期；trace 通过 MCP 同一只读白名单导出，同一 Run 重复导出哈希稳定。
 
 ## 进入第二企业/OCR的关口
 

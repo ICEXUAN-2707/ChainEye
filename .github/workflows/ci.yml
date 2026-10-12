@@ -19,6 +19,7 @@ jobs:
     env:
       PYTHONPATH: backend/src
       PYTHONUTF8: "1"
+      PYTHON_DOTENV_DISABLED: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,3 +48,15 @@ jobs:
         run: npm ci --prefix frontend
       - name: Build frontend
         run: npm run build --prefix frontend
+      - name: Verify native toolchain
+        run: python tools/preflight.py
+      - name: Verify installed dependency closure
+        run: python tools/bootstrap.py --check
+      - name: Reproduce persisted no-paid replay
+        run: python tools/reproduce_core_flow.py --mode replay --output-dir .runtime/reproduction-ci
+      - name: Exercise MCP stdio boundary
+        run: python tools/mcp_smoke.py --db .runtime/mcp-smoke-ci.sqlite
+      - name: Verify supervised native startup
+        run: python tools/start_all.py --verify-only --runtime-dir .runtime/native-stack-ci
+      - name: Exercise isolated HTTP flow
+        run: python tools/smoke_local.py

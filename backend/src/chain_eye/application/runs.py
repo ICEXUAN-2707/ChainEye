@@ -25,6 +25,7 @@ from chain_eye.domain.contracts import ErrorBody
 from chain_eye.domain.review import FactScopeError
 from chain_eye.domain.scenario import IdempotencyConflictError
 from chain_eye.ports.services import TypedProviderError
+from chain_eye.observability import NullJsonlLogger
 from chain_eye.prompts.registry import DEFAULT_PROMPT_REGISTRY
 from chain_eye.skills.registry import DEFAULT_SKILL_REGISTRY
 from chain_eye.skills.runtime import SkillPolicyError,SkillRuntimeGuard
@@ -38,9 +39,9 @@ SYSTEM_PROMPT=PROMPT_SPEC.content
 class RunExecutionService(RunGraphNodeHandlers):
     def __init__(
         self,repository,llm,clock=time.monotonic,
-        tool_registry=None,prompt_registry=None,skill_registry=None,graph=None,
+        tool_registry=None,prompt_registry=None,skill_registry=None,graph=None,logger=None,
     ):
-        self.repository=repository;self.llm=llm;self.clock=clock
+        self.repository=repository;self.llm=llm;self.clock=clock;self.logger=logger or NullJsonlLogger()
         try:self.model_config=normalize_model_config(getattr(self.llm,'public_config',None))
         except ExecutionManifestError as exc:raise ValueError('LLM adapter must expose a complete safe public_config') from exc
         self.financials=FinancialService(repository);self.scenarios=ScenarioExecutionService(repository)
@@ -197,7 +198,7 @@ class RunExecutionService(RunGraphNodeHandlers):
         state.artifacts['tools']=RunTools(
             self.repository,self.financials,self.scenarios,state.run_id,
             state.dataset_id,state.dataset_version,clock=self.clock,registry=self.tool_registry,
-            tool_specs=bindings.tools,
+            tool_specs=bindings.tools,logger=self.logger,
         )
         handlers={
             'plan':self._run_plan,'extract':self._run_extract,
@@ -206,7 +207,16 @@ class RunExecutionService(RunGraphNodeHandlers):
             'verify':self._run_verify,'replay_validate':self._run_replay_validate,
             'replay_copy':self._run_replay_copy,'report':self._run_report,
         }
-        AgentOrchestrator(bindings.graph,self.repository,self.clock).execute(state,handlers)
+        AgentOrchestrator(
+            bindings.graph,self.repository,self.clock,self.logger,
+            {'prompt_version':getattr(bindings.prompt,'version',None),'model':bindings.model.get('model')},
+        ).execute(state,handlers)
+        final=self.repository.get_run_record(state.run_id) or state.record
+        self.logger.emit(
+            'run_finished',run_id=state.run_id,node=final.get('current_node') or 'run',
+            prompt_version=final.get('prompt_version'),model=(final.get('model_config') or {}).get('model'),
+            status=final.get('status'),error_code=(final.get('error') or {}).get('code'),
+        )
 
     def _finish_error(self,run_id,record,code,message,retryable,details=None):
         current=self.repository.get_run_record(run_id) or record
@@ -214,6 +224,11 @@ class RunExecutionService(RunGraphNodeHandlers):
         error=ErrorBody(code=code,message=message[:1000],details=details or {},retryable=retryable,request_id=run_id).model_dump(mode='json')
         self.repository.update_run(run_id,status=status,error=error,report_ready=False)
         self.repository.append_event(run_id,'error',current.get('current_node') or 'run',{'status':status,'error':error})
+        self.logger.emit(
+            'run_finished',level='ERROR',run_id=run_id,node=current.get('current_node') or 'run',
+            prompt_version=current.get('prompt_version'),model=(current.get('model_config') or {}).get('model'),
+            status=status,error_code=code,
+        )
 
 
 class RunWorker:

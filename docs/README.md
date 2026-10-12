@@ -18,4 +18,4 @@ Phase 1 的自动化冻结候选仍以 `main@c7642185458a37719ca210a08b7cd8e18f3
 
 ## Phase 2 分支入口
 
-团队已从 `main@128f2c7e25a3a9e9745ded1da7742ff556f31e2b` 建立共享 `develop`，后续 Phase 2 短期分支从该分支创建并回到 `develop`。建立分支这一事实不代签 Phase 1 财务签核、独立复现或浏览器验收；正式冻结字段仍以验收记录为准。完整顺序见 `Phase_2/docs/07_剩余任务执行计划.md`。
+团队已从 `main@128f2c7e25a3a9e9745ded1da7742ff556f31e2b` 建立共享 `develop`；PR #20 与 PR #21 已依次合入，当前 G5 基线为 `develop@f1923d0582fceb966d82838137ea499ac8313b8c`。后续 Phase 2 短期分支从最新 `develop` 创建并回到 `develop`。建立或合并分支这一事实不代签 Phase 1 财务签核、独立复现或浏览器验收；正式冻结字段仍以验收记录为准。完整顺序见 `Phase_2/docs/07_剩余任务执行计划.md`。

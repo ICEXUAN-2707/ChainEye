@@ -12,18 +12,18 @@ from chain_eye.skills.runtime import SkillPolicyError
 class RunTools:
     def __init__(
         self,repository,financial_service,scenario_service,run_id,dataset_id,dataset_version,
-        clock=time.monotonic,registry:ToolRegistry|None=None,skill=None,tool_specs=None,deadline=None,
+        clock=time.monotonic,registry:ToolRegistry|None=None,skill=None,tool_specs=None,deadline=None,logger=None,
     ):
         self.repository=repository;self.financial_service=financial_service;self.scenario_service=scenario_service
         self.run_id=run_id;self.dataset_id=dataset_id;self.dataset_version=dataset_version;self.clock=clock
-        self.registry=registry or DEFAULT_TOOL_REGISTRY;self.skill=skill
+        self.registry=registry or DEFAULT_TOOL_REGISTRY;self.skill=skill;self.logger=logger
         self.tool_specs=tool_specs or {};self.deadline=deadline
 
     def for_skill(self,skill,deadline=None):
         return RunTools(
             self.repository,self.financial_service,self.scenario_service,self.run_id,
             self.dataset_id,self.dataset_version,self.clock,self.registry,skill,self.tool_specs,
-            deadline if deadline is not None else self.deadline,
+            deadline if deadline is not None else self.deadline,self.logger,
         )
 
     def call(self,name,arguments):
@@ -33,6 +33,7 @@ class RunTools:
             dataset_id=self.dataset_id,dataset_version=self.dataset_version,clock=self.clock,
             skill_id=getattr(self.skill,'id',None),skill_version=getattr(self.skill,'version',None),
             skill_spec_sha256=getattr(self.skill,'spec_sha256',None),deadline=self.deadline,
+            logger=self.logger,
         )
         allowed=getattr(self.skill,'allowed_tools',None)
         spec=self.tool_specs.get(name)

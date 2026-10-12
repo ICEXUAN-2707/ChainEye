@@ -1,8 +1,8 @@
 # 链眼 第二阶段优化资料包 v0.2
-更新日期：2026-10-10。两人开发：Ice/Codex负责架构、核心后端与集成；同学/Claude负责前端与交互。
+更新日期：2026-10-12。两人开发：Ice/Codex负责架构、核心后端与集成；同学/Claude负责前端与交互。
 
 ## 本包定位
-这是产品、工程和比赛复现交接包，不替换现有仓库。`develop@0d74837` 已合并 R5、PR #19 Registry 和 PR #20 Agent Orchestrator：六个 Agent Tool 使用单一注册源，Prompt/Skill/graph 均绑定版本与哈希，live/replay 由同一显式图调度。G4 分支 `feat/p2-mcp-mvp` 已实现官方 SDK stdio server、5 个只读 Tool、Dataset/Evidence/Run/Report/Skill 资源和一个版本化 Prompt，与 Agent 共用 Registry；审查后又修复了默认数据库分叉、MCP 启动写库、trace 脱敏、HTTP smoke 隔离及 Windows 协议超时边界。本地全套检查与真实子进程 smoke 通过，PR #21 已改以 `develop` 为 base，仍等待在线 CI 与第二位开发者互审。统一 JSONL 日志和跨平台一键复现属于后续 G5，尚未实现。解析仍只适配宁德时代冻结文本版式，扫描 PDF 无 OCR。G2/G3/G4 增量证据分别见仓库 `validation/P2-AgentRegistry验收记录.md`、`validation/P2-AgentOrchestrator验收记录.md` 与 `validation/P2-MCP验收记录.md`。
+这是产品、工程和比赛复现交接包，不替换现有仓库。`develop@f1923d0` 已合并 PR #20 Agent Orchestrator 与 PR #21 MCP MVP：六个 Agent Tool 使用单一注册源，Prompt/Skill/graph 均绑定版本与哈希，live/replay 由同一显式图调度，MCP 使用官方 SDK、stdio 和真只读 SQLite。G5 分支 `feat/p2-native-reproduction` 已在该基线上完成结构化脱敏 JSONL、preflight/bootstrap/start_all、无付费持久化 replay、稳定 trace 导出和双平台 CI 命令；本地 Windows 全套检查通过，仍等待远端 Ubuntu/Windows CI、第二位开发者独立复现和真实互审。解析仍只适配宁德时代冻结文本版式，扫描 PDF 无 OCR，第二企业属于合并 G5 后的 G6。G2—G5 增量证据见仓库相应 `validation/P2-*验收记录.md`。
 
 Phase 1 人工财务签核、第二位开发者独立复现和 PR 互审仍只能由实际执行者确认。本包不把这些待办或未实现的 Agent/MCP 能力写成成功。
 “第二阶段”编号P2，是本次功能优化迭代，不等于旧计划中的R2。P2横跨旧R2数据、R3计算、R4研究和R5报告；旧阶段要求继续有效，缺失基础须先补齐。

@@ -62,6 +62,7 @@ def main():
             'PYTHON_DOTENV_DISABLED':'1','CHAIN_EYE_DISABLE_MODEL':'1',
             'CHAIN_EYE_DB':str(isolated/'chain_eye.sqlite'),
             'CHAIN_EYE_UPLOAD_DIR':str(isolated/'sources'),
+            'CHAIN_EYE_LOG_PATH':str(isolated/'chain-eye.jsonl'),
             'CHAIN_EYE_INSTANCE_NONCE':nonce,
         })
         npm='npm.cmd' if os.name=='nt' else 'npm'
@@ -177,9 +178,13 @@ def main():
                 assert second_page['items'][0]['seq']==first_page['next_after_seq']+1
                 report=client.get(f'/api/v1/runs/{run_id}/report')
                 assert report.status_code==409 and report.json()['error']['code']=='REPORT_NOT_READY'
+            structured_log=isolated/'chain-eye.jsonl'
+            if not structured_log.is_file() or not structured_log.read_text(encoding='utf-8').strip():
+                raise RuntimeError('structured JSONL log was not produced')
             result={
                 'status':'passed','isolated_runtime':True,'startup_nonce_verified':True,
                 'paid_model_calls':False,'real_http':True,'frontend_html':True,'cors':True,
+                'structured_logging':True,
                 'fixture_facts':30,'evidence_page':25,'pdf':True,'upload':True,
                 'upload_version':3,'extracted_candidates':15,'correction_revision':2,
                 'reviewed_dataset_version':4,'duplicate_source_reused':True,'scenario':True,

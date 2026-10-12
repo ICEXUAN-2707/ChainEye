@@ -1,5 +1,6 @@
 import os
 import tempfile
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from uuid import uuid4
@@ -22,16 +23,18 @@ from chain_eye.application.runs import RunExecutionService,RunWorker
 from chain_eye.application.reports import ReportService
 from chain_eye.reporting.markdown import render_markdown
 from chain_eye.reporting.pdf import render_pdf
-from chain_eye.config import PROJECT_ROOT as ROOT,database_path,upload_root
+from chain_eye.config import PROJECT_ROOT as ROOT,database_path,log_path,upload_root
+from chain_eye.observability import JsonlLogger
 
 RESPONSES={n:{'model':ErrorResponse,'description':t} for n,t in [(403,'local access only'),(404,'not found'),(409,'conflict'),(422,'invalid input'),(429,'budget exceeded'),(500,'internal failure'),(503,'provider unavailable')]}
 
-def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
+def create_app(db_path=None,seed=True,upload_dir=None,llm=None,logger=None):
     if os.getenv('CHAIN_EYE_MODE','local')!='local': raise RuntimeError('R1 supports local mode only; public authentication not implemented')
     repo=SQLiteRepository(database_path(db_path),ROOT,upload_root(upload_dir))
     if seed:repo.seed()
+    structured_logger=logger or JsonlLogger(log_path())
     uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo)
-    runs=RunExecutionService(repo,llm or DeepSeekAdapter());reports=ReportService(repo);worker=RunWorker(repo,runs)
+    runs=RunExecutionService(repo,llm or DeepSeekAdapter(),logger=structured_logger);reports=ReportService(repo);worker=RunWorker(repo,runs)
     @asynccontextmanager
     async def lifespan(_app):
         if repo.has_unfinished_runs():worker.submit()
@@ -39,19 +42,44 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None):
         finally:worker.stop()
     app=FastAPI(title='Chain Eye API',version='0.4.0',description='R5 persisted, traceable reports over immutable evidence-bound Run snapshots.',lifespan=lifespan)
     app.state.repository=repo;app.state.run_service=runs;app.state.report_service=reports;app.state.run_worker=worker
+    app.state.structured_logger=structured_logger
     app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_methods=['GET','POST','PATCH'],allow_headers=['Content-Type','Idempotency-Key'],allow_credentials=False)
     def error(code,message,status,request_id,details=None,retryable=False):
         return JSONResponse(status_code=status,content=ErrorResponse(error=ErrorBody(code=code,message=message,details=details or {},retryable=retryable,request_id=request_id)).model_dump(mode='json'))
     @app.middleware('http')
     async def local_guard(request:Request,call_next):
-        rid=str(uuid4());request.state.request_id=rid
+        rid=str(uuid4());request.state.request_id=rid;started=time.monotonic()
         host=request.url.hostname;client=request.client.host if request.client else None
         if host not in ('localhost','127.0.0.1','::1') or client not in ('127.0.0.1','::1'):
-            return error('LOCAL_ONLY','R1仅限本机访问',403,rid)
+            response=error('LOCAL_ONLY','R1仅限本机访问',403,rid)
+            structured_logger.emit(
+                'http_request',level='WARNING',request_id=rid,duration_ms=round((time.monotonic()-started)*1000),
+                status='rejected',error_code='LOCAL_ONLY',method=request.method,path=request.url.path,http_status=403,
+            )
+            return response
         origin=request.headers.get('origin')
         if origin and origin not in ('http://localhost:5173','http://127.0.0.1:5173','http://localhost:8000','http://127.0.0.1:8000'):
-            return error('LOCAL_ONLY','Origin未允许',403,rid)
-        response=await call_next(request);response.headers['X-Request-ID']=rid;return response
+            response=error('LOCAL_ONLY','Origin未允许',403,rid)
+            structured_logger.emit(
+                'http_request',level='WARNING',request_id=rid,duration_ms=round((time.monotonic()-started)*1000),
+                status='rejected',error_code='LOCAL_ONLY',method=request.method,path=request.url.path,http_status=403,
+            )
+            return response
+        try:response=await call_next(request)
+        except Exception as exc:
+            structured_logger.emit(
+                'http_request',level='ERROR',request_id=rid,duration_ms=round((time.monotonic()-started)*1000),
+                status='failed',error_code=exc.__class__.__name__,method=request.method,path=request.url.path,
+            )
+            raise
+        response.headers['X-Request-ID']=rid
+        structured_logger.emit(
+            'http_request',level='INFO' if response.status_code<500 else 'ERROR',request_id=rid,
+            duration_ms=round((time.monotonic()-started)*1000),status='completed' if response.status_code<400 else 'failed',
+            error_code=None if response.status_code<400 else f'HTTP_{response.status_code}',
+            method=request.method,path=request.url.path,http_status=response.status_code,
+        )
+        return response
     @app.exception_handler(AppError)
     async def app_error(request,exc):return error(exc.code,exc.message,exc.status,request.state.request_id,exc.details,exc.retryable)
     @app.exception_handler(RequestValidationError)
