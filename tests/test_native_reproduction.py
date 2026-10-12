@@ -15,8 +15,15 @@ from tools.start_all import service_specs,start_stack
 class NativeReproduction(unittest.TestCase):
     def test_preflight_checks_pinned_installed_toolchain(self):
         result=collect_checks(skip_ports=True)
-        failed=[item for item in result['checks'] if item['status']!='passed']
+        failed=[item for item in result['checks'] if item['status']=='failed']
         self.assertEqual(failed,[])
+        self.assertEqual(result['status'],'passed')
+
+    def test_missing_frontend_dependencies_are_advisory_before_bootstrap(self):
+        with patch('tools.preflight.Path.is_dir',return_value=False):
+            result=collect_checks(skip_ports=True)
+        frontend=next(item for item in result['checks'] if item['name']=='frontend_dependencies')
+        self.assertEqual(frontend['status'],'warning')
         self.assertEqual(result['status'],'passed')
 
     def test_bootstrap_commands_are_argument_lists_without_shell_text(self):
