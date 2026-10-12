@@ -9,7 +9,7 @@ from tools.bootstrap import install_commands
 from tools.export_run_trace import export_trace
 from tools.preflight import collect_checks
 from tools.reproduce_core_flow import reproduce
-from tools.start_all import service_specs,start_stack
+from tools.start_all import service_specs,start_stack,wait_for_ports_free
 
 
 class NativeReproduction(unittest.TestCase):
@@ -53,6 +53,10 @@ class NativeReproduction(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary,patch.dict(os.environ,{},clear=True):
             with self.assertRaisesRegex(RuntimeError,'requires DEEPSEEK_API_KEY'):
                 start_stack(Path(temporary),timeout=.1,live_model=True)
+
+    def test_start_all_waits_until_both_ports_are_released(self):
+        with patch('tools.start_all._port_is_free',side_effect=[False,False,True,True]),patch('tools.start_all.time.sleep'):
+            wait_for_ports_free(timeout=1)
 
     def test_replay_uses_a_persisted_terminal_run_and_exports_safe_trace(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -37,6 +37,15 @@ def stop_process(process):
     except subprocess.TimeoutExpired:process.kill()
 
 
+def wait_for_ports_free(timeout=10):
+    deadline=time.monotonic()+timeout
+    occupied=[port for port in (BACKEND_PORT,FRONTEND_PORT) if not _port_is_free(port)]
+    while occupied and time.monotonic()<deadline:
+        time.sleep(.05)
+        occupied=[port for port in occupied if not _port_is_free(port)]
+    if occupied:raise RuntimeError(f'ports remained in use after service shutdown: {occupied}')
+
+
 def service_specs(runtime,nonce,live_model=False):
     backend_env=os.environ.copy();frontend_env=os.environ.copy()
     backend_env.update({
@@ -116,11 +125,15 @@ def main():
     finally:
         for _,process,_ in reversed(processes):stop_process(process)
         for handle in handles:handle.close()
-        stopped={**manifest,'status':'stopped','processes':{}}
+        cleanup_error=None
+        try:wait_for_ports_free()
+        except RuntimeError as exc:cleanup_error=exc
+        stopped={**manifest,'status':'cleanup_failed' if cleanup_error else 'stopped','processes':{}}
         (args.runtime_dir/'services.json').write_text(
             json.dumps(stopped,ensure_ascii=False,indent=2),encoding='utf-8',newline='\n',
         )
         print(json.dumps(stopped,ensure_ascii=False,sort_keys=True),flush=True)
+        if cleanup_error:raise cleanup_error
 
 
 if __name__=='__main__':main()
