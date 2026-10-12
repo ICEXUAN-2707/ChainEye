@@ -98,6 +98,11 @@ class ToolRegistry:
         if allowed_tools is not None and name not in allowed_tools:
             raise ToolFailure(f'tool is not allowed by skill: {name}')
         started=datetime.now(timezone.utc).isoformat();start=context.clock();call_id=str(uuid4())
+        logger=getattr(context,'logger',None)
+        if logger is not None:logger.emit(
+            'tool_call',run_id=context.run_id,node=name,skill_id=context.skill_id,tool_call_id=call_id,
+            status='started',tool_name=name,tool_version=spec.version,caller=caller,
+        )
         input_value,input_hash=_event_value(arguments)
         record={
             'call_id':call_id,'run_id':context.run_id,'tool_name':name,'tool_version':spec.version,
@@ -113,10 +118,20 @@ class ToolRegistry:
             output_value,output_hash=_event_value(output)
             record.update(output=output_value,output_sha256=output_hash,status='completed',ended_at=datetime.now(timezone.utc).isoformat())
             context.record_tool_event(name,record)
+            if logger is not None:logger.emit(
+                'tool_call',run_id=context.run_id,node=name,skill_id=context.skill_id,tool_call_id=call_id,
+                duration_ms=max(0,round((context.clock()-start)*1000)),status='completed',
+                tool_name=name,tool_version=spec.version,caller=caller,
+            )
             return output
         except Exception as exc:
             record.update(status='failed',error={'code':'TOOL_FAILED','message':str(exc)[:500]},ended_at=datetime.now(timezone.utc).isoformat())
             context.record_tool_event(name,record)
+            if logger is not None:logger.emit(
+                'tool_call',level='ERROR',run_id=context.run_id,node=name,skill_id=context.skill_id,
+                tool_call_id=call_id,duration_ms=max(0,round((context.clock()-start)*1000)),status='failed',
+                error_code=getattr(exc,'code',exc.__class__.__name__),tool_name=name,tool_version=spec.version,caller=caller,
+            )
             raise
 
 

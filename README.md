@@ -11,7 +11,7 @@ R2后端已在上传块之上实现PyMuPDF文本层解析、限定版式候选�
 价格仅一个日期两个不同系列，不能做历史均价或回测。标注仍是助手复核样本，团队人工签核待完成。
 
 ## 安装与启动
-Python 3.12、Node 22或24；本轮已在Linux及Windows PowerShell运行自动化检查。进入项目根：
+Python 3.12、Node 24；本轮已在Linux及Windows PowerShell运行自动化检查。进入项目根：
 ```bash
 python -m venv .venv
 source .venv/bin/activate
@@ -33,6 +33,28 @@ PYTHONPATH=backend/src python tools/mcp_smoke.py
 
 Windows PowerShell 先设置 `$env:PYTHONPATH="backend/src"`。第一条命令由 MCP client 通过 stdio 管理，只读访问已由后端初始化且迁移完整的本地数据库，不自动 seed 演示数据，也不应在 stdout 写入其他日志；第二条会显式创建或复用隔离的 smoke 数据库，然后启动真实子进程，验证初始化、列举、版本化 Dataset/Evidence 读取、Prompt/Skill 元数据与正常退出。传入 `--run-id <已完成Run>` 时另外验证已持久化的 trace 和 report。
 
+## G5 原生复现与结构化日志
+
+G5 固定使用 Python 3.12、Node 24 和 UTF-8，提供 Windows 11 / Ubuntu 共用的原生命令链，不依赖 Docker。首次安装按顺序运行：
+
+```bash
+python tools/preflight.py
+python tools/bootstrap.py
+python tools/start_all.py
+```
+
+`preflight.py` 在不修改项目状态的前提下检查解释器、Node/npm、锁文件、依赖状态、运行目录和端口；未安装的项目依赖只给 warning，由 `bootstrap.py` 按锁文件安装并初始化核对样本。`start_all.py` 监督 API 和前端、核对实例 nonce、保存 `.runtime/native-stack/services.json`，普通模式移除凭据类环境变量并强制禁止模型调用；`--live-model` 必须由人工显式提供 `DEEPSEEK_API_KEY`，不得进入普通 CI。Ctrl+C 或 `--verify-only` 会停止两个进程并把状态写成 `stopped`。
+
+无付费回放及 trace 导出：
+
+```bash
+python tools/reproduce_core_flow.py --mode replay
+python tools/export_run_trace.py --run-id <run_id>
+python tools/mcp_smoke.py
+```
+
+复现命令在隔离 SQLite 中真实执行一个禁用模型的 live Run；它在确定性计算后以 `MODEL_UNAVAILABLE` 进入 `partial`，随后创建绑定该已保存 Run 的 replay，验证 `model_calls=0` 并明确标记 `saved_run_artifacts_only`。它不伪造 completed/report 成功。导出的 JSONL trace 经 MCP 同一字段白名单和脱敏边界处理，同一 Run 重复导出字节稳定；API、Agent node、Tool 和 Run 生命周期日志具有统一字段、64 KiB 行上限，并移除密钥、Authorization、Cookie、完整环境、二进制正文和无界文本。
+
 另一个终端：
 ```bash
 cd frontend
@@ -50,6 +72,11 @@ PYTHONPATH=backend/src python tools/verify_baseline.py
 PYTHONPATH=backend/src python tools/export_contracts.py
 python tools/generate_ts.py
 npm run build --prefix frontend
+python tools/preflight.py
+python tools/bootstrap.py --check
+python tools/reproduce_core_flow.py --mode replay
+python tools/mcp_smoke.py
+python tools/start_all.py --verify-only
 python tools/smoke_local.py
 ```
 单一来源是后端路由、DTO及domain模型；`contracts/openapi.json`、Schema、`frontend/src/api/generated.ts`均为生成产物。不得手改第二套类型。

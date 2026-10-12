@@ -69,6 +69,7 @@ class ToolContext:
     skill_version:str|None=None
     skill_spec_sha256:str|None=None
     deadline:float|None=None
+    logger:object|None=None
 
     def with_deadline(self,deadline:float):
         return replace(self,deadline=min(self.deadline,deadline) if self.deadline is not None else deadline)

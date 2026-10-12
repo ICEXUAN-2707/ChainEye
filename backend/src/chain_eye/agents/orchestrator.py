@@ -17,8 +17,16 @@ class NodeResult:
 
 
 class AgentOrchestrator:
-    def __init__(self,graph:GraphSpec,repository,clock):
-        self.graph=graph;self.repository=repository;self.clock=clock
+    def __init__(self,graph:GraphSpec,repository,clock,logger=None,log_context=None):
+        self.graph=graph;self.repository=repository;self.clock=clock;self.logger=logger
+        self.log_context=dict(log_context or {})
+
+    def _log(self,state,node,status,duration_ms=0,error_code=None,level='INFO'):
+        if self.logger is not None:self.logger.emit(
+            'agent_node',level=level,run_id=state.run_id,node=node.id,duration_ms=duration_ms,
+            status=status,error_code=error_code,graph_id=self.graph.id,graph_version=self.graph.version,
+            **self.log_context,
+        )
 
     def _payload(self,node,status,duration_ms=0,error_code=None,details=None):
         return {
@@ -39,6 +47,7 @@ class AgentOrchestrator:
             state.update_record(self.repository.update_run(state.run_id,current_node=current))
             entered=self.clock()
             self.repository.append_event(state.run_id,'node_status',current,self._payload(node,'started'))
+            self._log(state,node,'started')
             try:
                 result=handler(state)
                 if not isinstance(result,NodeResult):
@@ -49,12 +58,16 @@ class AgentOrchestrator:
                     state.run_id,'node_status',current,
                     self._payload(node,'failed',elapsed,getattr(exc,'code',exc.__class__.__name__)),
                 )
+                self._log(
+                    state,node,'failed',elapsed,getattr(exc,'code',exc.__class__.__name__),level='ERROR',
+                )
                 raise
             elapsed=max(0,int((self.clock()-entered)*1000))
             self.repository.append_event(
                 state.run_id,'node_status',current,
                 self._payload(node,result.status,elapsed,details=result.details),
             )
+            self._log(state,node,result.status,elapsed)
             if result.terminal:return result
             matches=[
                 edge for edge in self.graph.transitions

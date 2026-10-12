@@ -17,7 +17,8 @@ async def smoke(db_path,run_id=None):
     build_repository(db_path,seed=True)
     env={
         'PYTHONPATH':str(ROOT/'backend/src'),'CHAIN_EYE_DB':str(Path(db_path).resolve()),
-        'CHAIN_EYE_MODE':'local','PYTHONUTF8':'1',
+        'CHAIN_EYE_MODE':'local','PYTHONUTF8':'1','CHAIN_EYE_DISABLE_MODEL':'1',
+        'PYTHON_DOTENV_DISABLED':'1',
     }
     params=StdioServerParameters(
         command=sys.executable,args=['-m','chain_eye.mcp.server'],env=env,cwd=ROOT,encoding='utf-8',
