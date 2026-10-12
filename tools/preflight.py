@@ -27,6 +27,7 @@ def _command_version(command):
 
 def _port_is_free(port):
     with socket.socket(socket.AF_INET,socket.SOCK_STREAM) as probe:
+        if os.name=='posix':probe.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
         try:probe.bind(('127.0.0.1',port))
         except OSError:return False
     return True
