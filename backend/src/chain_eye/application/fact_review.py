@@ -20,7 +20,10 @@ class FactReviewService:
         raw_value=request.raw_value
         if request.status!='missing' and raw_value is None:
             value=Decimal(request.value)
-            raw_value=decimal_text(value/1000 if current.raw_unit=='CNY_thousand' else value*100)
+            if current.raw_unit=='CNY_thousand':raw=value/1000
+            elif current.raw_unit=='percent':raw=value*100
+            else:raw=value
+            raw_value=decimal_text(raw)
         evidence_ids=list(dict.fromkeys(request.evidence_ids))
         payload={**current.model_dump(),'revision':current.revision+1,'value':request.value,'raw_value':raw_value,'status':request.status,'evidence_ids':evidence_ids,'missing_reason':request.missing_reason}
         try:updated=Fact.model_validate(payload)

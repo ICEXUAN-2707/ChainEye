@@ -1,12 +1,15 @@
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from chain_eye.adapters.sqlite import SQLiteRepository
 from chain_eye.api.app import create_app
+from chain_eye.api.dto import FactCorrection
 from chain_eye.application.extraction import AnnualReportExtractor
+from chain_eye.application.fact_review import FactReviewService
 from chain_eye.domain.companies import COMPANY_BY_ID,IdentityCandidate
 from chain_eye.domain.contracts import Fact
 from chain_eye.domain.datasets import DatasetCreate,Source
@@ -115,6 +118,34 @@ class CompanyIsolationPersistence(unittest.TestCase):
             DocumentPages(source_id=self.source.id,page_count=1,pages=(page,)),
         )
         self.assertEqual(result.facts,());self.assertEqual(result.warnings,('profile_version_mismatch',))
+
+
+class YuanFactReview(unittest.TestCase):
+    def test_omitted_raw_value_is_derived_one_to_one_for_yuan(self):
+        fact=Fact(
+            id='eve-revenue',company='EVE',metric='revenue',segment='group',statement_scope='consolidated',
+            period_kind='annual_flow',period_start='2025-01-01',period_end='2025-12-31',value='100',unit='CNY',
+            raw_value='100',raw_unit='CNY_yuan',status='extracted',evidence_ids=['eve-evidence'],restatement_status='not_restated',
+        )
+
+        class Repository:
+            def get_current_fact_context(self,fact_id):
+                self.asserted_fact_id=fact_id
+                return SimpleNamespace(id='eve-dataset'),fact
+
+            def correct_fact(self,dataset_id,expected_revision,updated,reason):
+                self.saved=(dataset_id,expected_revision,updated,reason)
+                return updated
+
+        repository=Repository()
+        updated=FactReviewService(repository).correct(
+            fact.id,
+            FactCorrection(
+                expected_revision=1,value='101.25',status='verified',evidence_ids=['eve-evidence'],reason='reviewed source value',
+            ),
+        )
+        self.assertEqual(updated.raw_value,'101.25')
+        self.assertEqual(repository.saved[:2],('eve-dataset',1))
 
 
 if __name__=='__main__':unittest.main()
