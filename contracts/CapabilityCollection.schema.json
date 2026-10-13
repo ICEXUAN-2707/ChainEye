@@ -1,0 +1,120 @@
+{
+  "$defs": {
+    "CapabilityItem": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "enum": [
+            "M1",
+            "M2",
+            "M3",
+            "M4",
+            "M5"
+          ],
+          "title": "Module Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "ready",
+            "needs_review",
+            "missing_data",
+            "unsupported",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason_code": {
+          "title": "Reason Code",
+          "type": "string"
+        },
+        "required_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Inputs",
+          "type": "array"
+        },
+        "missing_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Inputs",
+          "type": "array"
+        },
+        "evidence_gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Gaps",
+          "type": "array"
+        },
+        "supported_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Actions",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "status",
+        "reason_code",
+        "required_inputs",
+        "missing_inputs",
+        "evidence_gaps",
+        "supported_actions"
+      ],
+      "title": "CapabilityItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "dataset_id": {
+      "title": "Dataset Id",
+      "type": "string"
+    },
+    "dataset_version": {
+      "minimum": 1,
+      "title": "Dataset Version",
+      "type": "integer"
+    },
+    "company_id": {
+      "enum": [
+        "catl",
+        "eve-energy"
+      ],
+      "title": "Company Id",
+      "type": "string"
+    },
+    "industry_profile_id": {
+      "title": "Industry Profile Id",
+      "type": "string"
+    },
+    "industry_profile_version": {
+      "minimum": 1,
+      "title": "Industry Profile Version",
+      "type": "integer"
+    },
+    "items": {
+      "items": {
+        "$ref": "#/$defs/CapabilityItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "dataset_id",
+    "dataset_version",
+    "company_id",
+    "industry_profile_id",
+    "industry_profile_version",
+    "items"
+  ],
+  "title": "CapabilityCollection",
+  "type": "object"
+}

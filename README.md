@@ -1,4 +1,4 @@
-# 链眼 宁德时代 R5 可追溯报告
+# 链眼 P2.1 多企业证据约束研究
 
 R1基线冻结日期：2026-09-30。两名开发者从同一契约开始，Codex负责后端，Claude负责前端。
 文档总入口为 `docs/README.md`。Phase 1 的历史PRD、Spec与交叉自检统一归档在 `docs/Phase_1/`；Phase 2 的设计资料统一放在 `docs/Phase_2/`。
@@ -9,6 +9,8 @@ R1实现SQLite迁移与持久化、版本快照读取、核对样本seed、事�
 45项测试、干净Python环境安装、前端构建及真实HTTP联调通过。详细命令与限制见验收记录。
 R2后端已在上传块之上实现PyMuPDF文本层解析、限定版式候选事实提取、PDF页码/bbox证据定位及人工更正的revision/version原子事务。自动候选只写`extracted`、`missing`或`conflict`，不会写`verified`。R3已启用六项确定性财务规则、条件情景及对应前端。R4后端启用冻结的Run创建、查询、事件游标和恢复接口：Run绑定不可变数据快照，由单工作线程领取SQLite作业，只能调用六个白名单工具；财务与情景数值仍由程序计算，模型候选Claim必须经过实际可见引用的存在性与数字对照检查，缺证据或引用不支持的数字会降级。回放复用已校验产物且不调用模型。R5后端已启用既有报告接口，完成的Run原子落库一份结构化Report，并从该记录导出JSON、Markdown和PDF；报告保留事实revision、计算输入、假设、证据与限制，证据不足或非法引用Claim不进入正文。未完成Run返回`REPORT_NOT_READY`，不会输出空报告。
 价格仅一个日期两个不同系列，不能做历史均价或回测。标注仍是助手复核样本，团队人工签核待完成。
+
+G6 后端在 R5 基础上新增 CATL/亿纬锂能版本化企业 profile、文档身份候选与人工确认、五模块能力矩阵和公司范围门禁；身份冲突会阻止 Run/Scenario，公司更正生成新 Dataset 快照且旧快照保持可读。HTTP/OpenAPI 版本为 `0.5.0`。前端对新增 `CNY_yuan` 原始单位的展示适配仍由前端负责人完成，未完成前不把 G6 记为完整前后端交付。
 
 ## 安装与启动
 Python 3.12、Node 24；本轮已在Linux及Windows PowerShell运行自动化检查。进入项目根：
@@ -55,6 +57,19 @@ python tools/mcp_smoke.py
 
 复现命令在隔离 SQLite 中真实执行一个禁用模型的 live Run；它在确定性计算后以 `MODEL_UNAVAILABLE` 进入 `partial`，随后创建绑定该已保存 Run 的 replay，验证 `model_calls=0` 并明确标记 `saved_run_artifacts_only`。它不伪造 completed/report 成功。导出的 JSONL trace 经 MCP 同一字段白名单和脱敏边界处理，同一 Run 重复导出字节稳定；API、Agent node、Tool 和 Run 生命周期日志具有统一字段、64 KiB 行上限，并移除密钥、Authorization、Cookie、完整环境、二进制正文和无界文本。
 
+## G6 第二企业后端
+
+第二企业冻结为深交所 `300014` 惠州亿纬锂能股份有限公司。官方披露元数据、公告号、哈希、页数和适配/未见样本角色记录在 `data/company_sources.json`；PDF 按需下载到忽略的 `.runtime/company-sources/`，仓库不在缺少明确再分发许可时复制原件。
+
+```bash
+PYTHONPATH=backend/src python tools/fetch_company_report.py --report eve-2024-annual-report
+PYTHONPATH=backend/src python tools/fetch_company_report.py --report eve-2025-annual-report
+PYTHONPATH=backend/src python tools/validate_company_report.py --report eve-2024-annual-report --api-flow
+PYTHONPATH=backend/src python tools/validate_company_report.py --report eve-2025-annual-report --api-flow
+```
+
+2024 适配材料和 2025 未见迁移材料均为真实文本层年报。验证器检查官方清单哈希、页数、企业/年度识别、13 个目标事实、证据绑定及“原文元值不乘 1000”不变量；`--api-flow` 还执行真实 HTTP 上传、SQLite 快照落库和身份/事实/能力矩阵回读。这些自动检查不是第二位开发者的独立财务准确率签核。
+
 另一个终端：
 ```bash
 cd frontend
@@ -99,7 +114,7 @@ curl -X POST http://127.0.0.1:8000/api/v1/datasets/<dataset_id>/sources \
 
 响应沿用生成契约`SourceAttachment`，返回上传及同步确定性提取完成后的最新数据包版本。来源关联与新增候选事实分别形成不可变快照，因此首次支持的年报上传可能连续增加两个版本；前端必须始终使用响应中的`dataset.version`读取事实。同数据包同哈希重复上传不增加版本。限制为30 MiB、500页、每数据包5个来源，只接受未加密PDF；扫描件或不受支持的版式为`needs_review`。
 
-当前确定性提取器只支持仓库规格冻结的宁德时代2024/2025文本层年报版式，要求同时识别报告年份、表头、行名、千元单位及合并口径。其他公司、年份、版式和扫描件不猜测数值，也不启用OCR或LLM。人工复核继续使用既有`PATCH /api/v1/facts/{id}`契约；`expected_revision`冲突返回409，更正生成新Fact revision和Dataset版本，旧快照保持可读。
+当前确定性提取器支持仓库规格冻结的宁德时代与亿纬锂能 2024/2025 文本层年报版式，分别保留原文千元与元单位并统一输出人民币元十进制字符串。其他公司、年份、版式和扫描件不猜测数值，也不启用 OCR 或 LLM。人工复核继续使用既有`PATCH /api/v1/facts/{id}`契约；`expected_revision`冲突返回409，更正生成新Fact revision和Dataset版本，旧快照保持可读。
 
 ## 协作与交付
 `tasks/Codex_后端任务.md` 与 `tasks/Claude_前端任务.md`规定边界及R2要求。两人先各自复现R1，互审一个关键流程，再进入上传与复核闭环。

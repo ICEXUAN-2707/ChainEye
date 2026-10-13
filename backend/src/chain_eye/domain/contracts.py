@@ -47,7 +47,7 @@ class Fact(Contract):
     value: DecimalText | None
     unit: Literal['CNY','ratio']
     raw_value: DecimalText | None
-    raw_unit: Literal['CNY_thousand','percent']
+    raw_unit: Literal['CNY_yuan','CNY_thousand','percent']
     status: Literal['extracted','needs_review','verified','missing','conflict']
     evidence_ids: list[str]
     missing_reason: str | None = None
@@ -68,14 +68,14 @@ class Fact(Contract):
             if self.period_start != f'{end.year}-01-01' or self.period_end!=f'{end.year}-12-31': raise ValueError('annual flow requires full calendar year')
         elif self.period_start is not None: raise ValueError('point-in-time has no start')
         if self.unit=='ratio' and self.raw_unit!='percent': raise ValueError('ratio requires percent source')
-        if self.unit=='CNY' and self.raw_unit!='CNY_thousand': raise ValueError('money requires thousand source')
+        if self.unit=='CNY' and self.raw_unit not in ('CNY_yuan','CNY_thousand'): raise ValueError('money requires CNY source')
         balances={'total_assets','parent_equity','inventory','accounts_receivable'}
         if (self.metric in balances)!=(self.period_kind=='point_in_time'): raise ValueError('metric period kind mismatch')
         if self.metric=='reported_gross_margin' and self.unit!='ratio': raise ValueError('margin must use ratio')
         if self.metric!='reported_gross_margin' and self.unit!='CNY': raise ValueError('monetary metric must use CNY')
         if self.value is not None and self.raw_value is not None:
             raw=Decimal(self.raw_value)
-            expected=raw*1000 if self.raw_unit=='CNY_thousand' else raw/100
+            expected=raw*1000 if self.raw_unit=='CNY_thousand' else (raw if self.raw_unit=='CNY_yuan' else raw/100)
             if Decimal(self.value)!=expected: raise ValueError('raw/normalized value mismatch')
         if self.status=='verified' and self.raw_value is None: raise ValueError('verified requires raw value')
         return self

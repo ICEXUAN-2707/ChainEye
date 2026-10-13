@@ -10,6 +10,11 @@ class Contracts(unittest.TestCase):
   self.assertEqual(decimal_text(Decimal('23.8500')),'23.85');self.assertEqual(decimal_text(Decimal('-0.000')),'0')
  def test_raw_mismatch(self):
   with self.assertRaises(ValidationError):Fact.model_validate({**fact('revenue',100).model_dump(),'raw_value':'1'})
+ def test_yuan_source_is_not_scaled(self):
+  body=fact('revenue',100).model_dump();body.update(raw_unit='CNY_yuan',raw_value='100',value='100')
+  self.assertEqual(Fact.model_validate(body).value,'100')
+  body['value']='100000'
+  with self.assertRaises(ValidationError):Fact.model_validate(body)
  def test_annual_partial(self):
   with self.assertRaises(ValidationError):Fact.model_validate({**fact('revenue',100).model_dump(),'period_start':'2025-04-01'})
  def test_bad_date(self):

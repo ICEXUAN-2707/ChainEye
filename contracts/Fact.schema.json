@@ -107,6 +107,7 @@
     },
     "raw_unit": {
       "enum": [
+        "CNY_yuan",
         "CNY_thousand",
         "percent"
       ],

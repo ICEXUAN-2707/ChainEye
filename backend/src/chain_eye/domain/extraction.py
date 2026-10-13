@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from chain_eye.domain.contracts import Evidence,Fact
+from chain_eye.domain.companies import IdentityCandidate
 
 @dataclass(frozen=True,slots=True)
 class DocumentWord:
@@ -34,6 +35,7 @@ class ExtractionResult:
     evidence: tuple[Evidence,...]
     parse_status: Literal['parsed','needs_review','failed']
     warnings: tuple[str,...]
+    identity_candidate: IdentityCandidate | None = None
 
 class ExtractionError(ValueError):
     pass

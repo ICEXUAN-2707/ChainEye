@@ -1,0 +1,44 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expected_version": {
+      "minimum": 1,
+      "title": "Expected Version",
+      "type": "integer"
+    },
+    "company_id": {
+      "enum": [
+        "catl",
+        "eve-energy"
+      ],
+      "title": "Company Id",
+      "type": "string"
+    },
+    "report_year": {
+      "maximum": 2100,
+      "minimum": 2000,
+      "title": "Report Year",
+      "type": "integer"
+    },
+    "report_type": {
+      "const": "annual_report",
+      "title": "Report Type",
+      "type": "string"
+    },
+    "reason": {
+      "maxLength": 1000,
+      "minLength": 1,
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "expected_version",
+    "company_id",
+    "report_year",
+    "report_type",
+    "reason"
+  ],
+  "title": "IdentityConfirmation",
+  "type": "object"
+}

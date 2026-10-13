@@ -1,0 +1,106 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "source_id": {
+      "title": "Source Id",
+      "type": "string"
+    },
+    "company_id": {
+      "anyOf": [
+        {
+          "enum": [
+            "catl",
+            "eve-energy"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company Id"
+    },
+    "company_code": {
+      "anyOf": [
+        {
+          "enum": [
+            "CATL",
+            "EVE"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Company Code"
+    },
+    "legal_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Legal Name"
+    },
+    "report_year": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Report Year"
+    },
+    "report_type": {
+      "enum": [
+        "annual_report",
+        "unknown"
+      ],
+      "title": "Report Type",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "identified",
+        "unrecognized",
+        "ambiguous",
+        "conflict"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "evidence_pages": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Evidence Pages",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    }
+  },
+  "required": [
+    "source_id",
+    "company_id",
+    "company_code",
+    "legal_name",
+    "report_year",
+    "report_type",
+    "status",
+    "evidence_pages",
+    "warnings"
+  ],
+  "title": "IdentityCandidate",
+  "type": "object"
+}

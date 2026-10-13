@@ -2,7 +2,7 @@
 更新日期：2026-10-12。两人开发：Ice/Codex负责架构、核心后端与集成；同学/Claude负责前端与交互。
 
 ## 本包定位
-这是产品、工程和比赛复现交接包，不替换现有仓库。`develop@f1923d0` 已合并 PR #20 Agent Orchestrator 与 PR #21 MCP MVP：六个 Agent Tool 使用单一注册源，Prompt/Skill/graph 均绑定版本与哈希，live/replay 由同一显式图调度，MCP 使用官方 SDK、stdio 和真只读 SQLite。G5 分支 `feat/p2-native-reproduction` 已在该基线上完成结构化脱敏 JSONL、preflight/bootstrap/start_all、无付费持久化 replay、稳定 trace 导出和双平台 CI 命令；本地 Windows 全套检查通过，仍等待远端 Ubuntu/Windows CI、第二位开发者独立复现和真实互审。解析仍只适配宁德时代冻结文本版式，扫描 PDF 无 OCR，第二企业属于合并 G5 后的 G6。G2—G5 增量证据见仓库相应 `validation/P2-*验收记录.md`。
+这是产品、工程和比赛复现交接包，不替换现有仓库。G5 已由 PR #22 合并至 `develop@0b26a54`。当前 G6 分支 `feat/p2-company-core` 已实现 CATL/亿纬锂能 profile、身份候选与确认、能力矩阵、两企业隔离和真实原生 PDF 后端流程；2024 适配材料与 2025 未见材料均通过哈希、身份、13 项候选事实和元单位不变量检查。OpenAPI 已提升为 `0.5.0`。前端对新增原始单位的类型与展示适配、远端 CI、第二位开发者独立复现和真实互审仍待实际执行者完成，因此 G6 尚不是可合并完成态。扫描 PDF 仍无 OCR，属于 G7。
 
 Phase 1 人工财务签核、第二位开发者独立复现和 PR 互审仍只能由实际执行者确认。本包不把这些待办或未实现的 Agent/MCP 能力写成成功。
 “第二阶段”编号P2，是本次功能优化迭代，不等于旧计划中的R2。P2横跨旧R2数据、R3计算、R4研究和R5报告；旧阶段要求继续有效，缺失基础须先补齐。

@@ -1,0 +1,70 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "module_id": {
+      "enum": [
+        "M1",
+        "M2",
+        "M3",
+        "M4",
+        "M5"
+      ],
+      "title": "Module Id",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "ready",
+        "needs_review",
+        "missing_data",
+        "unsupported",
+        "failed"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "reason_code": {
+      "title": "Reason Code",
+      "type": "string"
+    },
+    "required_inputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Inputs",
+      "type": "array"
+    },
+    "missing_inputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Inputs",
+      "type": "array"
+    },
+    "evidence_gaps": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Gaps",
+      "type": "array"
+    },
+    "supported_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Actions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "module_id",
+    "status",
+    "reason_code",
+    "required_inputs",
+    "missing_inputs",
+    "evidence_gaps",
+    "supported_actions"
+  ],
+  "title": "CapabilityItem",
+  "type": "object"
+}
