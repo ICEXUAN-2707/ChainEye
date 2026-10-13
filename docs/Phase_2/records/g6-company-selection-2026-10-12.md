@@ -38,6 +38,7 @@ HTTP/OpenAPI 从 `0.4.0` 提升到 `0.5.0`：
 
 - 从 `feat/p2-company-core@78858f8` 建立 `feat/p2-company-frontend`，没有手改 `frontend/src/api/generated.ts`。
 - `FactTable` 已显示 `CNY_yuan` 为“元”；`ReviewForm` 使用十进制字符串移位实现元、千元和百分数双向联动，金额回写不经过 JSON 浮点数。
-- 本地 34 项前端测试、TypeScript、Vite 构建、205 项后端测试、baseline、契约零漂移和隔离 HTTP smoke 已通过，真实命令与限制见 `../../../validation/P2-G6前端验收记录.md`。
-- Chrome 无头真实页面验证了 EVE 13 条元值事实及双向一比一编辑；computer-use 可见浏览器 helper 初始化失败，因此可见人工浏览器复核、远端 CI、第二位开发者独立复现和互审仍未完成。
-- PR #23 修正为 `develop` base 后，Ubuntu/Windows CI 均准确暴露旧前端未覆盖 `CNY_yuan` 的 TypeScript 错误；包含本前端适配的 PR #24 作为 G6 集成候选，不能把 #23 的失败写成通过。
+- 最终集成候选补充服务端 `CNY_yuan` 省略原值时的一比一推导，避免沿用百分数反算分支；对应测试覆盖元、千元和百分数回归。
+- 本地 34 项前端测试、TypeScript、Vite 构建、206 项后端测试、baseline、契约零漂移和隔离 HTTP smoke 已通过，真实命令与限制见 `../../../validation/P2-G6前端验收记录.md`。
+- Chrome 无头真实页面验证了 EVE 13 条元值事实及双向一比一编辑；computer-use 可见浏览器 helper 初始化失败，因此可见人工浏览器复核、第二位开发者独立复现和互审仍未完成。
+- PR #23 修正为 `develop` base 后，Ubuntu/Windows CI 均准确暴露旧前端未覆盖 `CNY_yuan` 的 TypeScript 错误；包含前后端修复的 PR #24 最新头 `82662c8` 的 CI workflow 已通过，#23 仍不得单独合并。
