@@ -2,7 +2,7 @@ import {useState} from 'react';
 import type {Fact, Evidence, FactCorrection} from '../api/generated';
 import {api, ApiError, BASE_URL} from '../api/client';
 import {names,metrics,periodOf,fmtRaw,fmtAmount,statusLabels} from '../lib/format';
-import {buildFactCorrection,canSubmitReview,type ReviewStatus} from '../lib/review';
+import {buildFactCorrection,canSubmitReview,isDecimalValue,normalizedValueFromRaw,rawUnitLabel,rawValueFromNormalized,type ReviewStatus} from '../lib/review';
 
 function message(e:unknown):string{
   if(e instanceof ApiError){
@@ -27,7 +27,20 @@ export function ReviewForm({fact,evidence,evidenceLoading,evidenceError,onClose,
   const needEvidence=status==='verified'&&fact.evidence_ids.length===0;
   const evidenceMatches=!!evidence&&evidence.id===fact.evidence_ids[0];
   const evidenceUnavailable=status==='verified'&&fact.evidence_ids.length>0&&(evidenceLoading||!!evidenceError||!evidenceMatches);
-  const canSubmit=canSubmitReview({busy,status,value,missingReason,reason,evidenceCount:fact.evidence_ids.length,evidenceReady:!evidenceUnavailable&&!needEvidence});
+  const valuesValid=isMissing||(isDecimalValue(value)&&(!rawValue||isDecimalValue(rawValue)));
+  const canSubmit=canSubmitReview({busy,status,value,missingReason,reason,evidenceCount:fact.evidence_ids.length,evidenceReady:!evidenceUnavailable&&!needEvidence,valuesValid});
+  const changeValue=(next:string)=>{
+    setValue(next);
+    if(next===''){setRawValue('');return;}
+    const converted=rawValueFromNormalized(next,fact.raw_unit);
+    if(converted!==null)setRawValue(converted);
+  };
+  const changeRawValue=(next:string)=>{
+    setRawValue(next);
+    if(next==='')return;
+    const converted=normalizedValueFromRaw(next,fact.raw_unit);
+    if(converted!==null)setValue(converted);
+  };
   const submit=async()=>{
     const body:FactCorrection=buildFactCorrection(fact,status,value,rawValue,missingReason,reason);
     setBusy(true);setError('');
@@ -48,12 +61,13 @@ export function ReviewForm({fact,evidence,evidenceLoading,evidenceError,onClose,
           </select>
         </label>
         <label>规范值（{isRatio?'比率十进制字符串':'人民币元，十进制字符串'}）
-          <input type="text" value={value} disabled={isMissing} onChange={e=>setValue(e.target.value)} placeholder={isMissing?'缺失时无需填写':isRatio?'例如 0.2385':'例如 423701834000'}/>
+          <input type="text" inputMode="decimal" value={value} disabled={isMissing} onChange={e=>changeValue(e.target.value)} placeholder={isMissing?'缺失时无需填写':isRatio?'例如 0.2385':'例如 423701834000'}/>
           {!isMissing&&<span className="muted">≈ {fmtAmount(value||null,fact.unit)}</span>}
         </label>
-        <label>原值（{fact.raw_unit==='percent'?'百分数':'千元'}，可留空由后端按规范值反算）
-          <input type="text" value={rawValue} disabled={isMissing} onChange={e=>setRawValue(e.target.value)} placeholder="留空自动反算"/>
+        <label>原值（{rawUnitLabel(fact.raw_unit)}，与规范值按原文单位联动）
+          <input type="text" inputMode="decimal" value={rawValue} disabled={isMissing} onChange={e=>changeRawValue(e.target.value)} placeholder="留空时提交前自动换算"/>
         </label>
+        {!isMissing&&!valuesValid&&<p role="alert" className="error">金额必须是普通十进制字符串，不能使用千分位、指数记法或前导零。</p>}
         {isMissing&&<label>缺失原因
           <input type="text" value={missingReason} onChange={e=>setMissingReason(e.target.value)} placeholder="例如：目标字段未在报表中披露"/>
         </label>}

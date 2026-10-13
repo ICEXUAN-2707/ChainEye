@@ -33,3 +33,10 @@ HTTP/OpenAPI 从 `0.4.0` 提升到 `0.5.0`：
 4. 复现 `npm ci --prefix frontend && npm run build --prefix frontend`；当前后端分支上的真实结果为前端 28 项测试通过，随后 TypeScript 在 `FactTable.tsx:13` 与 `ReviewForm.tsx:73` 各报 1 处 `CNY_yuan` 未覆盖错误。
 
 这份记录只描述接口与影响，不代替前端实现、可见浏览器检查或另一名开发者互审。
+
+## 2026-10-13 前端候选进展
+
+- 从 `feat/p2-company-core@78858f8` 建立 `feat/p2-company-frontend`，没有手改 `frontend/src/api/generated.ts`。
+- `FactTable` 已显示 `CNY_yuan` 为“元”；`ReviewForm` 使用十进制字符串移位实现元、千元和百分数双向联动，金额回写不经过 JSON 浮点数。
+- 本地 34 项前端测试、TypeScript、Vite 构建、205 项后端测试、baseline、契约零漂移和隔离 HTTP smoke 已通过，真实命令与限制见 `../../../validation/P2-G6前端验收记录.md`。
+- Chrome 无头真实页面验证了 EVE 13 条元值事实及双向一比一编辑；computer-use 可见浏览器 helper 初始化失败，因此可见人工浏览器复核、远端 CI、第二位开发者独立复现和互审仍未完成。
