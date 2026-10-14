@@ -1,4 +1,4 @@
-import {useState} from 'react';
+import {useEffect,useRef,useState} from 'react';
 import type {SourceAttachment} from '../api/generated';
 import {api,ApiError} from '../api/client';
 import {parseStatusLabels} from '../lib/format';
@@ -10,19 +10,29 @@ function message(e:unknown):string{
   return e instanceof Error?e.message:'上传失败';
 }
 
-export function UploadPanel({datasetId,onUploaded}:{datasetId:string;onUploaded:(a:SourceAttachment)=>void}){
+export function UploadPanel({datasetId,onUploaded}:{datasetId:string;onUploaded:(a:SourceAttachment,requestedDatasetId:string)=>void}){
   const [file,setFile]=useState<File|null>(null);
   const [busy,setBusy]=useState(false);
   const [error,setError]=useState('');
   const [result,setResult]=useState<SourceAttachment|null>(null);
+  const controllerRef=useRef<AbortController|null>(null);
+  const datasetRef=useRef(datasetId);
+  useEffect(()=>{
+    datasetRef.current=datasetId;controllerRef.current?.abort();controllerRef.current=null;
+    setFile(null);setResult(null);setError('');setBusy(false);
+  },[datasetId]);
+  useEffect(()=>()=>controllerRef.current?.abort(),[]);
   const submit=async()=>{
     if(!file||!datasetId)return;
+    const requestedDatasetId=datasetId;
+    controllerRef.current?.abort();const controller=new AbortController();controllerRef.current=controller;
     setBusy(true);setError('');
     try{
-      const a=await api.uploadSource(datasetId,file);
-      setResult(a);onUploaded(a);
-    }catch(e){setError(message(e));}
-    finally{setBusy(false);}
+      const a=await api.uploadSource(requestedDatasetId,file,{signal:controller.signal});
+      if(controller.signal.aborted||datasetRef.current!==requestedDatasetId)return;
+      setResult(a);onUploaded(a,requestedDatasetId);
+    }catch(e){if(!controller.signal.aborted&&datasetRef.current===requestedDatasetId)setError(message(e));}
+    finally{if(!controller.signal.aborted&&datasetRef.current===requestedDatasetId)setBusy(false);}
   };
   return <section className="panel">
     <h2>上传年报 PDF</h2>
