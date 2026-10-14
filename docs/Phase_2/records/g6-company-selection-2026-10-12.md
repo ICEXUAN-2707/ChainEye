@@ -41,4 +41,4 @@ HTTP/OpenAPI 从 `0.4.0` 提升到 `0.5.0`：
 - 最终集成候选补充服务端 `CNY_yuan` 省略原值时的一比一推导，避免沿用百分数反算分支；对应测试覆盖元、千元和百分数回归。
 - 本地 34 项前端测试、TypeScript、Vite 构建、206 项后端测试、baseline、契约零漂移和隔离 HTTP smoke 已通过，真实命令与限制见 `../../../validation/P2-G6前端验收记录.md`。
 - Chrome 无头真实页面验证了 EVE 13 条元值事实及双向一比一编辑；computer-use 可见浏览器 helper 初始化失败，因此可见人工浏览器复核、第二位开发者独立复现和互审仍未完成。
-- PR #23 修正为 `develop` base 后，Ubuntu/Windows CI 均准确暴露旧前端未覆盖 `CNY_yuan` 的 TypeScript 错误；包含前后端修复的 PR #24 最新头 `82662c8` 的 CI workflow 已通过，#23 仍不得单独合并。
+- PR #23 修正为 `develop` base 后，Ubuntu/Windows CI 均准确暴露旧前端未覆盖 `CNY_yuan` 的 TypeScript 错误；PR #24 的前后端集成代码提交 `82662c8` 及其后续文档收尾提交的 CI workflow 均已通过，#23 仍不得单独合并。
