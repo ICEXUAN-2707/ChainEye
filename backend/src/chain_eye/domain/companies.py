@@ -138,6 +138,18 @@ class IdentityCandidateNotFoundError(ValueError):
     pass
 
 
+def identity_candidate_matches(candidate,company_id,report_year,report_type):
+    profile=COMPANY_BY_ID.get(company_id)
+    return (
+        profile is not None
+        and candidate.status=='identified'
+        and candidate.company_id==company_id
+        and candidate.report_year in (report_year,report_year-1)
+        and candidate.report_year in profile.supported_report_years
+        and candidate.report_type==report_type
+    )
+
+
 def capability_matrix(dataset,facts,profile=None):
     if dataset.identity_status!='confirmed' or not dataset.company_id:
         return []

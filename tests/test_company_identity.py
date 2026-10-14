@@ -11,10 +11,12 @@ from chain_eye.api.dto import FactCorrection
 from chain_eye.application.extraction import AnnualReportExtractor
 from chain_eye.application.fact_review import FactReviewService
 from chain_eye.domain.companies import COMPANY_BY_ID,IdentityCandidate
-from chain_eye.domain.contracts import Fact
+from chain_eye.domain.contracts import Evidence,Fact
 from chain_eye.domain.datasets import DatasetCreate,Source
 from chain_eye.domain.extraction import DocumentPage,DocumentPages,ExtractionResult
 from chain_eye.domain.review import FactScopeError
+from chain_eye.domain.scenario import ScenarioEvidenceScopeError
+from chain_eye.tools.handlers.evidence import search_documents
 
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -33,16 +35,20 @@ class CompanyIdentityAPI(unittest.TestCase):
             parse_status='queued',data_basis='user_uploaded',
         )
         attachment=self.app.state.repository.attach_source(self.dataset['id'],self.source,'upload:identity-source.pdf')
+        self.attached_version=attachment.dataset.version
         candidate=IdentityCandidate(
             source_id=self.source.id,company_id='catl',company_code='CATL',
             legal_name=COMPANY_BY_ID['catl'].legal_name,report_year=2025,report_type='annual_report',
             status='conflict',evidence_pages=[1],warnings=['dataset_document_identity_conflict'],
         )
-        self.app.state.repository.apply_extraction(
-            self.dataset['id'],self.source.id,
-            ExtractionResult(facts=(),evidence=(),parse_status='needs_review',warnings=('identity_conflict',),identity_candidate=candidate),
+        self.extraction_result=ExtractionResult(
+            facts=(),evidence=(),parse_status='needs_review',warnings=('identity_conflict',),identity_candidate=candidate,
         )
-        self.version=attachment.dataset.version
+        extracted=self.app.state.repository.apply_extraction(
+            self.dataset['id'],self.source.id,
+            self.extraction_result,
+        )
+        self.version=extracted.dataset.version
 
     def tearDown(self):
         self.client.close();self.tmp.cleanup()
@@ -68,6 +74,16 @@ class CompanyIdentityAPI(unittest.TestCase):
         blocked=self.client.post('/api/v1/runs',json=body,headers={'Idempotency-Key':'identity-conflict-run'})
         self.assertEqual(blocked.status_code,409);self.assertEqual(blocked.json()['error']['code'],'IDENTITY_CONFLICT')
 
+    def test_identity_candidate_change_publishes_one_immutable_snapshot(self):
+        self.assertEqual(self.version,self.attached_version+1)
+        self.assertEqual(self.app.state.repository.identity_candidates(self.dataset['id'],self.attached_version),[])
+        self.assertEqual(len(self.app.state.repository.identity_candidates(self.dataset['id'],self.version)),1)
+        replayed=self.app.state.repository.apply_extraction(
+            self.dataset['id'],self.source.id,self.extraction_result,
+        )
+        self.assertEqual(replayed.dataset.version,self.version)
+        self.assertEqual(self.app.state.repository.get_dataset(self.dataset['id']).version,self.version)
+
     def test_confirmation_creates_snapshot_and_resolves_matching_candidate(self):
         body={'expected_version':self.version,'company_id':'catl','report_year':2025,'report_type':'annual_report','reason':'reviewed issuer title and stock code'}
         response=self.client.post(f"/api/v1/datasets/{self.dataset['id']}/identity-confirmations",json=body)
@@ -83,6 +99,105 @@ class CompanyIdentityAPI(unittest.TestCase):
         self.assertEqual(mismatch.status_code,409);self.assertEqual(mismatch.json()['error']['code'],'STALE_SNAPSHOT')
         stale=self.client.post(f"/api/v1/datasets/{self.dataset['id']}/identity-confirmations",json=body)
         self.assertEqual(stale.status_code,409);self.assertEqual(stale.json()['error']['code'],'IDENTITY_CONFLICT')
+
+    def test_mixed_company_confirmation_blocks_run_scenario_and_foreign_evidence(self):
+        repository=self.app.state.repository
+        eve_source=Source(
+            id='eve-source',filename='eve.pdf',sha256='e'*64,media_type='application/pdf',page_count=1,
+            url='https://static.cninfo.com.cn/eve.pdf',published_date='2026-03-28',
+            parse_status='queued',data_basis='user_uploaded',
+        )
+        attached=repository.attach_source(self.dataset['id'],eve_source,'upload:eve.pdf')
+        eve_evidence=Evidence(
+            id='eve-evidence',source_id=eve_source.id,locator_kind='pdf',pdf_page=1,
+            bbox=[1,1,2,2],excerpt='跨公司证据 营业收入',sha256=eve_source.sha256,
+        )
+        eve_fact=Fact(
+            id='eve-fact',company='EVE',metric='revenue',segment='group',statement_scope='consolidated',
+            period_kind='annual_flow',period_start='2025-01-01',period_end='2025-12-31',value='100',unit='CNY',
+            raw_value='100',raw_unit='CNY_yuan',status='extracted',evidence_ids=[eve_evidence.id],restatement_status='not_restated',
+        )
+        eve_candidate=IdentityCandidate(
+            source_id=eve_source.id,company_id='eve-energy',company_code='EVE',
+            legal_name=COMPANY_BY_ID['eve-energy'].legal_name,report_year=2025,report_type='annual_report',
+            status='identified',evidence_pages=[1],warnings=[],
+        )
+        extracted=repository.apply_extraction(
+            self.dataset['id'],eve_source.id,
+            ExtractionResult(
+                facts=(eve_fact,),evidence=(eve_evidence,),parse_status='parsed',warnings=(),
+                identity_candidate=eve_candidate,
+            ),
+        )
+        self.assertEqual(extracted.dataset.version,attached.dataset.version+1)
+
+        catl_evidence=Evidence(
+            id='catl-evidence',source_id=self.source.id,locator_kind='pdf',pdf_page=1,
+            bbox=[1,1,2,2],excerpt='已确认公司证据 营业收入',sha256=self.source.sha256,
+        )
+        with repository.connect() as db:
+            db.execute('INSERT INTO evidence VALUES (?,?,?)',(catl_evidence.id,catl_evidence.source_id,catl_evidence.model_dump_json()))
+
+        confirmation={
+            'expected_version':extracted.dataset.version,'company_id':'catl','report_year':2025,
+            'report_type':'annual_report','reason':'reviewed issuer title and stock code',
+        }
+        response=self.client.post(
+            f"/api/v1/datasets/{self.dataset['id']}/identity-confirmations",json=confirmation,
+        )
+        self.assertEqual(response.status_code,201);confirmed=response.json()
+        candidates={
+            item.source_id:item for item in repository.identity_candidates(self.dataset['id'],confirmed['version'])
+        }
+        self.assertEqual(candidates[self.source.id].status,'identified')
+        self.assertEqual(candidates[eve_source.id].status,'conflict')
+
+        capabilities=self.client.get(
+            f"/api/v1/datasets/{self.dataset['id']}/capabilities"
+            f"?version={confirmed['version']}&industry_profile_version=1",
+        )
+        self.assertEqual(capabilities.status_code,200)
+        self.assertTrue(all(
+            item['status']=='failed' and item['reason_code']=='IDENTITY_CONFLICT'
+            for item in capabilities.json()['items']
+        ))
+
+        run=self.client.post(
+            '/api/v1/runs',
+            json={
+                'dataset_id':self.dataset['id'],'dataset_version':confirmed['version'],'question':'q',
+                'segment':'power_battery','mode':'live',
+            },
+            headers={'Idempotency-Key':'mixed-company-run'},
+        )
+        self.assertEqual(run.status_code,409);self.assertEqual(run.json()['error']['code'],'IDENTITY_CONFLICT')
+        scenario=self.client.post(
+            '/api/v1/scenarios',
+            json={
+                'dataset_id':self.dataset['id'],'dataset_version':confirmed['version'],
+                'revenue_fact_id':'missing-revenue','cost_fact_id':'missing-cost',
+                'revenue_revision':1,'cost_revision':1,'model_version':'static-gross-profit-v1',
+                'assumptions':{
+                    'cost_exposure':'0.1','effective_price_shock':'-0.2','customer_pass_through':'0.5',
+                    'basis':'user_assumption','acknowledged':True,
+                },
+            },
+            headers={'Idempotency-Key':'mixed-company-scenario'},
+        )
+        self.assertEqual(scenario.status_code,409);self.assertEqual(scenario.json()['error']['code'],'IDENTITY_CONFLICT')
+
+        evidence=repository.evidence_for_snapshot(self.dataset['id'],confirmed['version'])
+        self.assertEqual([item.id for item in evidence],[catl_evidence.id])
+        with self.assertRaises(ScenarioEvidenceScopeError):
+            repository.validate_evidence_snapshot(self.dataset['id'],confirmed['version'],[eve_evidence.id])
+        context=SimpleNamespace(
+            repository=repository,dataset_id=self.dataset['id'],dataset_version=confirmed['version'],
+            check_snapshot=lambda dataset_id,version:None,check_budget=lambda:None,
+        )
+        searched=search_documents(
+            context,self.dataset['id'],confirmed['version'],'营业收入',top_k=8,
+        )
+        self.assertEqual([item.id for item in searched],[catl_evidence.id])
 
 
 class CompanyIsolationPersistence(unittest.TestCase):

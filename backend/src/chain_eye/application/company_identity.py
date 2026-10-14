@@ -2,6 +2,7 @@ from chain_eye.application.errors import AppError
 from chain_eye.domain.companies import (
     CapabilityCollection,CapabilityItem,IdentityCandidateCollection,
     IdentityCandidateNotFoundError,IdentityVersionConflictError,capability_matrix,
+    identity_candidate_matches,
 )
 
 
@@ -13,6 +14,17 @@ class CompanyIdentityService:
         if profile is None or profile.industry_profile_id!=dataset.industry_profile_id or profile.industry_profile_version!=dataset.industry_profile_version:
             raise AppError('STALE_SNAPSHOT','数据包绑定的企业或行业配置版本不可用',409)
         return profile
+
+    @staticmethod
+    def _has_identity_conflict(dataset,candidates):
+        for candidate in candidates:
+            if candidate.status in ('conflict','ambiguous'):
+                return True
+            if candidate.company_id is not None and not identity_candidate_matches(
+                candidate,dataset.company_id,dataset.year,dataset.report_type,
+            ):
+                return True
+        return False
 
     def candidates(self,dataset_id,version):
         dataset=self.repository.get_dataset(dataset_id,version)
@@ -41,7 +53,7 @@ class CompanyIdentityService:
             )
         profile=self._profile_for_dataset(dataset)
         candidates=self.repository.identity_candidates(dataset_id,version)
-        conflict=any(item.status in ('conflict','ambiguous') for item in candidates)
+        conflict=self._has_identity_conflict(dataset,candidates)
         if dataset.identity_status!='confirmed' or conflict:
             reason='IDENTITY_CONFLICT' if conflict else 'IDENTITY_UNCONFIRMED'
             items=[CapabilityItem(
@@ -60,7 +72,7 @@ class CompanyIdentityService:
         if dataset is None:raise AppError('NOT_FOUND','数据包或版本不存在',404)
         self._profile_for_dataset(dataset)
         candidates=self.repository.identity_candidates(dataset_id,version)
-        if any(item.status in ('conflict','ambiguous') for item in candidates):
+        if self._has_identity_conflict(dataset,candidates):
             raise AppError('IDENTITY_CONFLICT','文档身份与数据包身份冲突，禁止执行公司结论',409)
         if dataset.identity_status!='confirmed':
             raise AppError('IDENTITY_UNCONFIRMED','企业身份尚未确认，禁止执行公司结论',409)
