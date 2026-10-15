@@ -23,7 +23,7 @@
 
 |命令/检查|结果|
 |---|---|
-|`python -m unittest discover -s tests -v`（UTF-8 环境）|214 项通过，180.330 秒|
+|`python -m unittest discover -s tests -v`（UTF-8 环境）|216 项通过，183.318 秒|
 |`python tools/verify_baseline.py`|30 条 fixture、4 项 margin、文件哈希和契约引用通过；不等于 OCR 准确率|
 |契约导出、TypeScript 生成与生成物 diff|OpenAPI/Schema 0.5.0；零漂移|
 |`npm ci --prefix frontend` + `npm run build --prefix frontend`|41 项逻辑测试 + 3 项组件测试、TypeScript、Vite 构建通过|
@@ -33,6 +33,17 @@
 |最终 `tools/ocr_poc.py` 全链路|104 OCR 行、20 layout 区域、55 table cells、5 个选定模型哈希验证通过|
 
 第一次全量测试未设置 `PYTHONUTF8=1`，preflight 按设计报告 `utf8_mode=0, stdout=gbk`，结果为 214 项中的 2 项失败，不能记为成功。按仓库规定补齐 UTF-8 环境后完整重跑，最终 214 项通过；没有修改或放宽预检规则。
+
+## PR #25 审查整改
+
+2026-10-15 针对审查意见完成以下整改：
+
+- 所有启用角色的模型现在先按 manifest 下载缺失文件、校验字节数和 SHA256，再把已校验的明确路径传给 RapidOCR、RapidLayout 和 RapidTable。错误哈希会在渲染和引擎初始化前失败；回归测试证明不会调用 OCR 推理。
+- 图片输入的表格裁剪不再写到原图目录，统一写入 `<output-dir>/table-crops/`；回归测试预置同名用户文件并证明其内容保持不变。
+- 使用 OCR 隔离环境对 982 × 390 的既有年报表格小样本执行真实三引擎链路，得到 54 条 OCR 文本、1 个版面区域、55 个表格单元格，5 个模型完整性校验通过，结果写入被忽略的 `.runtime/ocr-poc/review-fix-run/`。
+- 新增两项回归后，项目 `.venv` 中设置 `PYTHONPATH=backend/src`、`PYTHONUTF8=1` 完整运行 216 项测试，全部通过，耗时 183.318 秒。
+
+一次误用系统 Python 的全量测试仅收集到 79 项，并因缺少锁定的 `fitz`、`httpx2` 及正确 MCP 版本产生 11 个导入错误；该次失败不记为通过，随后已在项目 `.venv` 中完整重跑。PR 描述、第二位开发者复现与真实互审仍须分别以 GitHub 实际状态和实际执行者确认为准。
 
 ## 必须保留的限制
 

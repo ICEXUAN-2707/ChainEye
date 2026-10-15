@@ -79,7 +79,7 @@ python -m pip install -r backend/requirements.lock -r backend/requirements-ocr.l
 python tools/ocr_poc.py --input .runtime/company-sources/eve-2025.pdf --pages 9 --dpi 144 --run-ocr --run-layout --run-table --table-crop 110,435,1092,825
 ```
 
-首次执行可能下载固定模型；名称、URL、字节数与 SHA256 见 `data/ocr_model_manifest.json`。当前实测是原生 PDF 的栅格化可行性验证，不是真实扫描准确率验收；详细限制见 G7 OCR POC 验收记录。
+首次执行会先把缺失的固定模型下载到隔离目录，并在任何引擎初始化或推理之前校验字节数与 SHA256；校验失败立即终止。名称、URL、字节数与 SHA256 见 `data/ocr_model_manifest.json`。表格裁剪统一写入 `<output-dir>/table-crops/`，不在图片输入目录旁生成或覆盖同名文件。当前实测是原生 PDF 的栅格化可行性验证，不是真实扫描准确率验收；详细限制见 G7 OCR POC 验收记录。
 
 另一个终端：
 ```bash

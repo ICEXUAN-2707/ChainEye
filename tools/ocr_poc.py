@@ -11,7 +11,11 @@ import hashlib
 import importlib.metadata
 import importlib.util
 import json
+import shutil
+import tempfile
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -144,15 +148,21 @@ def render_inputs(input_path: Path, pages: list[int], dpi: int, output_dir: Path
     return rendered
 
 
-def run_ocr(image_path: Path, model_root: Path, matrix: Sequence[float] | None) -> dict:
-    from rapidocr import RapidOCR
-
-    params = {
-        "Global.model_root_dir": str(model_root),
+def ocr_model_params(model_paths: dict[str, Path]) -> dict:
+    return {
+        "Det.model_path": str(model_paths["text_detection"]),
+        "Cls.model_path": str(model_paths["text_direction"]),
+        "Rec.model_path": str(model_paths["text_recognition"]),
         "Global.log_level": "warning",
         "EngineConfig.onnxruntime.intra_op_num_threads": 2,
         "EngineConfig.onnxruntime.inter_op_num_threads": 1,
     }
+
+
+def run_ocr(image_path: Path, model_paths: dict[str, Path], matrix: Sequence[float] | None) -> dict:
+    from rapidocr import RapidOCR
+
+    params = ocr_model_params(model_paths)
     started = time.perf_counter()
     engine = RapidOCR(params=params)
     initialized = time.perf_counter()
@@ -179,11 +189,16 @@ def run_ocr(image_path: Path, model_root: Path, matrix: Sequence[float] | None) 
     }
 
 
-def run_layout(image_path: Path, matrix: Sequence[float] | None) -> dict:
+def run_layout(image_path: Path, model_path: Path, matrix: Sequence[float] | None) -> dict:
     from rapid_layout import RapidLayout
 
     started = time.perf_counter()
-    engine = RapidLayout(model_type="pp_doc_layoutv3", conf_thresh=0.5, iou_thresh=0.5)
+    engine = RapidLayout(
+        model_type="pp_doc_layoutv3",
+        model_dir_or_path=str(model_path),
+        conf_thresh=0.5,
+        iou_thresh=0.5,
+    )
     initialized = time.perf_counter()
     output = engine(str(image_path))
     finished = time.perf_counter()
@@ -208,7 +223,8 @@ def run_layout(image_path: Path, matrix: Sequence[float] | None) -> dict:
 def run_table(
     image_path: Path,
     crop: tuple[int, int, int, int],
-    model_root: Path,
+    output_dir: Path,
+    model_paths: dict[str, Path],
     matrix: Sequence[float] | None,
 ) -> dict:
     from PIL import Image
@@ -219,17 +235,15 @@ def run_table(
         if x1 > image.width or y1 > image.height:
             raise ValueError(f"table crop {crop} exceeds image size {(image.width, image.height)}")
         cropped = image.crop(crop)
-        crop_path = image_path.with_name(f"{image_path.stem}-table.png")
+        crop_dir = output_dir / "table-crops"
+        crop_dir.mkdir(parents=True, exist_ok=True)
+        crop_path = crop_dir / f"{image_path.stem}-table.png"
         cropped.save(crop_path)
     started = time.perf_counter()
     engine = RapidTable(RapidTableInput(
         model_type=ModelType.SLANETPLUS,
-        ocr_params={
-            "Global.model_root_dir": str(model_root),
-            "Global.log_level": "warning",
-            "EngineConfig.onnxruntime.intra_op_num_threads": 2,
-            "EngineConfig.onnxruntime.inter_op_num_threads": 1,
-        },
+        model_dir_or_path=str(model_paths["table_structure"]),
+        ocr_params=ocr_model_params(model_paths),
     ))
     initialized = time.perf_counter()
     output = engine(str(crop_path))
@@ -267,31 +281,87 @@ def package_model_roots() -> list[Path]:
     return roots
 
 
-def verify_model_files(search_roots: Iterable[Path], required_roles: set[str]) -> list[dict]:
+def download_model_file(expected: dict, destination: Path) -> None:
+    """Download one model without exposing it to an inference engine first."""
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            dir=destination.parent,
+            prefix=f".{destination.name}.",
+            suffix=".download",
+            delete=False,
+        ) as stream:
+            temporary_path = Path(stream.name)
+            with urllib.request.urlopen(expected["source"], timeout=120) as response:
+                shutil.copyfileobj(response, stream)
+        actual = (temporary_path.stat().st_size, sha256_path(temporary_path))
+        wanted = (expected["bytes"], expected["sha256"])
+        if actual != wanted:
+            raise ValueError(f"downloaded model integrity check failed: {expected['name']}")
+        temporary_path.replace(destination)
+        temporary_path = None
+    except (OSError, urllib.error.URLError) as exc:
+        raise ValueError(f"failed to download required model: {expected['name']}") from exc
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
+
+
+def verify_model_files(
+    search_roots: Iterable[Path],
+    model_root: Path,
+    required_roles: set[str],
+) -> tuple[list[dict], dict[str, Path]]:
     manifest = json.loads((ROOT / "data" / "ocr_model_manifest.json").read_text(encoding="utf-8"))
     verified = []
+    selected_paths = {}
+    manifest_roles = {item["role"] for item in manifest["models"]}
+    unknown_roles = required_roles - manifest_roles
+    if unknown_roles:
+        raise ValueError(f"model manifest does not define roles: {sorted(unknown_roles)}")
+    roots = [root.resolve() for root in search_roots]
     for expected in manifest["models"]:
         if expected["role"] not in required_roles:
             continue
         candidates = []
-        for root in search_roots:
+        seen = set()
+        for root in roots:
             if root.exists():
-                candidates.extend(root.rglob(expected["name"]))
-        unique = sorted({path.resolve() for path in candidates})
-        if not unique:
-            raise ValueError(f"required model file was not found: {expected['name']}")
-        actuals = {(path.stat().st_size, sha256_path(path)) for path in unique}
+                for path in sorted(root.rglob(expected["name"])):
+                    resolved = path.resolve()
+                    if resolved not in seen:
+                        seen.add(resolved)
+                        candidates.append(resolved)
+        if not candidates:
+            destination = model_root.resolve() / expected["name"]
+            download_model_file(expected, destination)
+            candidates.append(destination)
+        actuals = {(path.stat().st_size, sha256_path(path)) for path in candidates}
         wanted = (expected["bytes"], expected["sha256"])
         if actuals != {wanted}:
             raise ValueError(f"model integrity check failed: {expected['name']}")
+        selected_paths[expected["role"]] = candidates[0]
         verified.append({
             "role": expected["role"],
             "name": expected["name"],
             "bytes": expected["bytes"],
             "sha256": expected["sha256"],
-            "copies_found": len(unique),
+            "copies_found": len(candidates),
         })
-    return verified
+    return verified, selected_paths
+
+
+def required_model_roles(args: argparse.Namespace) -> set[str]:
+    roles = set()
+    if args.run_ocr:
+        roles.update(("text_detection", "text_direction", "text_recognition"))
+    if args.run_layout:
+        roles.add("document_layout")
+    if args.run_table:
+        roles.add("table_structure")
+        roles.update(("text_detection", "text_direction", "text_recognition"))
+    return roles
 
 
 def execute(args: argparse.Namespace) -> dict:
@@ -304,6 +374,11 @@ def execute(args: argparse.Namespace) -> dict:
         raise ValueError("--run-table requires --table-crop")
     output_dir = args.output_dir.resolve()
     model_root = args.model_root.resolve()
+    models, model_paths = verify_model_files(
+        [model_root, *package_model_roots()],
+        model_root,
+        required_model_roles(args),
+    )
     rendered = render_inputs(input_path, pages, args.dpi, output_dir)
     page_results = []
     for item in rendered:
@@ -315,21 +390,22 @@ def execute(args: argparse.Namespace) -> dict:
             "warnings": item["warnings"],
         }
         if args.run_ocr:
-            result["ocr"] = run_ocr(item["image_path"], model_root, item["pixel_to_page_matrix"])
+            result["ocr"] = run_ocr(item["image_path"], model_paths, item["pixel_to_page_matrix"])
         if args.run_layout:
-            result["layout"] = run_layout(item["image_path"], item["pixel_to_page_matrix"])
+            result["layout"] = run_layout(
+                item["image_path"],
+                model_paths["document_layout"],
+                item["pixel_to_page_matrix"],
+            )
         if args.run_table:
-            result["table"] = run_table(item["image_path"], crop, model_root, item["pixel_to_page_matrix"])
+            result["table"] = run_table(
+                item["image_path"],
+                crop,
+                output_dir,
+                model_paths,
+                item["pixel_to_page_matrix"],
+            )
         page_results.append(result)
-    required_roles = set()
-    if args.run_ocr:
-        required_roles.update(("text_detection", "text_direction", "text_recognition"))
-    if args.run_layout:
-        required_roles.add("document_layout")
-    if args.run_table:
-        required_roles.add("table_structure")
-        required_roles.update(("text_detection", "text_direction", "text_recognition"))
-    models = verify_model_files([model_root, *package_model_roots()], required_roles)
     return {
         "schema_version": 1,
         "purpose": "evaluation_only",
