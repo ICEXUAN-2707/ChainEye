@@ -70,6 +70,17 @@ PYTHONPATH=backend/src python tools/validate_company_report.py --report eve-2025
 
 2024 适配材料和 2025 未见迁移材料均为真实文本层年报。验证器检查官方清单哈希、页数、企业/年度识别、13 个目标事实、证据绑定及“原文元值不乘 1000”不变量；`--api-flow` 还执行真实 HTTP 上传、SQLite 快照落库和身份/事实/能力矩阵回读。这些自动检查不是第二位开发者的独立财务准确率签核。
 
+## G7 OCR POC
+
+G7 先以独立可选依赖迁移 RapidAI 模块化栈，不把大型权重放入普通安装或 CI。当前 POC 使用 RapidLayout 定位版面、RapidOCR 识别中文文字、RapidTable 恢复表格 cell；它只输出评测 JSON，不写 Dataset/Fact，也不能写 `verified`。
+
+```powershell
+python -m pip install -r backend/requirements.lock -r backend/requirements-ocr.lock
+python tools/ocr_poc.py --input .runtime/company-sources/eve-2025.pdf --pages 9 --dpi 144 --run-ocr --run-layout --run-table --table-crop 110,435,1092,825
+```
+
+首次执行可能下载固定模型；名称、URL、字节数与 SHA256 见 `data/ocr_model_manifest.json`。当前实测是原生 PDF 的栅格化可行性验证，不是真实扫描准确率验收；详细限制见 G7 OCR POC 验收记录。
+
 另一个终端：
 ```bash
 cd frontend
