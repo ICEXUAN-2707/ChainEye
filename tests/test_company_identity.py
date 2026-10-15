@@ -199,6 +199,29 @@ class CompanyIdentityAPI(unittest.TestCase):
         )
         self.assertEqual([item.id for item in searched],[catl_evidence.id])
 
+        catl_fact=Fact(
+            id='catl-fact',company='CATL',metric='revenue',segment='group',statement_scope='consolidated',
+            period_kind='annual_flow',period_start='2025-01-01',period_end='2025-12-31',value='200',unit='CNY',
+            raw_value='200',raw_unit='CNY_yuan',status='extracted',evidence_ids=[catl_evidence.id],
+            restatement_status='not_restated',
+        )
+        with repository.connect() as db:
+            db.execute('INSERT INTO facts VALUES (?,?,?)',(catl_fact.id,catl_fact.revision,catl_fact.model_dump_json()))
+            db.execute(
+                'INSERT INTO dataset_facts VALUES (?,?,?,?)',
+                (self.dataset['id'],confirmed['version'],catl_fact.id,catl_fact.revision),
+            )
+        correction=self.client.patch(
+            f'/api/v1/facts/{catl_fact.id}',
+            json={
+                'expected_revision':1,'value':'201','raw_value':'201','status':'verified',
+                'evidence_ids':[eve_evidence.id],'reason':'attempted cross-company evidence review',
+            },
+        )
+        self.assertEqual(correction.status_code,409)
+        self.assertEqual(correction.json()['error']['code'],'SCOPE_MISMATCH')
+        self.assertEqual(repository.get_dataset(self.dataset['id']).version,confirmed['version'])
+
 
 class CompanyIsolationPersistence(unittest.TestCase):
     def setUp(self):

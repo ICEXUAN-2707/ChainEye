@@ -521,11 +521,13 @@ class SQLiteRepository:
             if updated.revision!=previous.revision+1:raise FactRevisionConflictError(previous.revision)
             if self._fact_key(updated)!=self._fact_key(previous) or updated.period_start!=previous.period_start or updated.period_kind!=previous.period_kind:
                 raise FactScopeError('correction changed fact identity')
+            allowed=self._identity_valid_source_ids(db,dataset_id,current.version)
             for evidence_id in updated.evidence_ids:
                 evidence_row=db.execute('SELECT source_id FROM evidence WHERE id=?',(evidence_id,)).fetchone()
                 if evidence_row is None:raise EvidenceScopeError('evidence not found')
                 linked=db.execute('SELECT 1 FROM dataset_sources WHERE dataset_id=? AND version=? AND source_id=?',(dataset_id,current.version,evidence_row[0])).fetchone()
-                if linked is None:raise EvidenceScopeError('evidence source is outside current dataset')
+                if linked is None or (allowed is not None and evidence_row[0] not in allowed):
+                    raise EvidenceScopeError('evidence source is outside the current identity scope')
             db.execute('INSERT INTO facts VALUES (?,?,?)',(updated.id,updated.revision,updated.model_dump_json()))
             new_version=current.version+1
             next_dataset=current.model_copy(update={'version':new_version})
