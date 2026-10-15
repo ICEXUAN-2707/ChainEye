@@ -6,6 +6,11 @@ from uuid import uuid4
 from chain_eye.agents.graph import DEFAULT_AGENT_GRAPH
 from chain_eye.agents.policy import can_recover_interrupted_node
 from chain_eye.domain.datasets import Dataset,DatasetCreate,Source,SourceAttachment,DatasetSourceLimitError
+from chain_eye.domain.companies import (
+    COMPANY_PROFILES,COMPANY_BY_CODE,CompanyProfile,IdentityCandidate,IdentityConfirmation,
+    IdentityCandidateNotFoundError,IdentityVersionConflictError,identity_candidate_matches,
+    require_company_profile,
+)
 from chain_eye.api.dto import Event,Report,Run,RunCreate
 from chain_eye.domain.contracts import Fact,Evidence,ScenarioResult,ErrorBody
 from chain_eye.domain.review import EvidenceScopeError,FactNotFoundError,FactRevisionConflictError,FactScopeError
@@ -30,6 +35,13 @@ class SQLiteRepository:
                 sha=hashlib.sha256(p.read_bytes()).hexdigest();row=db.execute('SELECT sha256 FROM migrations WHERE name=?',(p.name,)).fetchone()
                 if row and row[0]!=sha: raise RuntimeError('applied migration modified')
                 if not row:db.executescript(p.read_text(encoding='utf-8'));db.execute('INSERT INTO migrations VALUES (?,?)',(p.name,sha))
+            for profile in COMPANY_PROFILES:
+                future=db.execute('SELECT MAX(profile_version) FROM company_profiles WHERE id=?',(profile.id,)).fetchone()[0]
+                if future is not None and future>profile.profile_version:raise RuntimeError('company profile downgrade')
+                row=db.execute('SELECT body FROM company_profiles WHERE id=? AND profile_version=?',(profile.id,profile.profile_version)).fetchone()
+                if row is None:db.execute('INSERT INTO company_profiles VALUES (?,?,?)',(profile.id,profile.profile_version,profile.model_dump_json()))
+                elif json.loads(row[0])!=profile.model_dump(mode='json'):
+                    raise RuntimeError('company profile changed without version bump')
 
     def _expected_migrations(self):
         return {
@@ -57,7 +69,15 @@ class SQLiteRepository:
             with db:yield db
         finally:db.close()
     def create(self,request:DatasetCreate):
-        d=Dataset(id=str(uuid4()),name=request.name,company=request.company,year=request.year,version=1,source_ids=[],created_at=datetime.now(timezone.utc).isoformat(),data_basis='empty')
+        profile=COMPANY_BY_CODE[request.company]
+        d=Dataset(
+            id=str(uuid4()),name=request.name,company=request.company,company_id=profile.id,
+            year=request.year,version=1,source_ids=[],created_at=datetime.now(timezone.utc).isoformat(),
+            data_basis='empty',identity_status='confirmed',
+            company_profile_version=profile.profile_version,industry_profile_id=profile.industry_profile_id,
+            industry_profile_version=profile.industry_profile_version,
+            identity_confirmation_reason='user_selected_company_at_dataset_creation',
+        )
         with self.connect() as db:
             db.execute('INSERT INTO datasets VALUES (?,?,?,?)',(d.id,'local',1,d.model_dump_json()))
             db.execute('INSERT INTO dataset_snapshots VALUES (?,?,?)',(d.id,1,d.model_dump_json()))
@@ -69,6 +89,95 @@ class SQLiteRepository:
     def list_datasets(self,offset,limit):
         with self.connect() as db: rows=db.execute('SELECT body FROM datasets ORDER BY id LIMIT ? OFFSET ?',(limit+1,offset)).fetchall()
         return [Dataset.model_validate_json(row[0]) for row in rows[:limit]],offset+limit if len(rows)>limit else None
+    def list_companies(self,offset,limit):
+        with self.connect() as db:
+            rows=db.execute(
+                'SELECT cp.body FROM company_profiles cp '
+                'JOIN (SELECT id,MAX(profile_version) AS profile_version FROM company_profiles GROUP BY id) latest '
+                'ON latest.id=cp.id AND latest.profile_version=cp.profile_version '
+                'ORDER BY cp.id LIMIT ? OFFSET ?',
+                (limit+1,offset),
+            ).fetchall()
+        return [CompanyProfile.model_validate_json(row[0]) for row in rows[:limit]],offset+limit if len(rows)>limit else None
+    def get_company_profile(self,company_id,profile_version):
+        with self.connect() as db:
+            row=db.execute('SELECT body FROM company_profiles WHERE id=? AND profile_version=?',(company_id,profile_version)).fetchone()
+        return CompanyProfile.model_validate_json(row[0]) if row else None
+    def identity_candidates(self,dataset_id,version):
+        with self.connect() as db:
+            rows=db.execute('SELECT body FROM identity_candidates WHERE dataset_id=? AND dataset_version=? ORDER BY source_id',(dataset_id,version)).fetchall()
+        return [IdentityCandidate.model_validate_json(row[0]) for row in rows]
+    @staticmethod
+    def _identity_valid_source_ids(db,dataset_id,version):
+        dataset_row=db.execute('SELECT body FROM dataset_snapshots WHERE dataset_id=? AND version=?',(dataset_id,version)).fetchone()
+        if dataset_row is None:return set()
+        dataset=Dataset.model_validate_json(dataset_row[0])
+        candidate_rows=db.execute(
+            'SELECT source_id,body FROM identity_candidates WHERE dataset_id=? AND dataset_version=?',
+            (dataset_id,version),
+        ).fetchall()
+        if not candidate_rows:return None
+        if dataset.identity_status!='confirmed':return set()
+        return {
+            source_id for source_id,body in candidate_rows
+            if identity_candidate_matches(
+                IdentityCandidate.model_validate_json(body),dataset.company_id,dataset.year,dataset.report_type,
+            )
+        }
+    def confirm_identity(self,dataset_id,request:IdentityConfirmation):
+        profile=require_company_profile(request.company_id)
+        if request.report_year not in profile.supported_report_years:raise IdentityCandidateNotFoundError('report year is outside the company profile')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row=db.execute('SELECT body FROM datasets WHERE id=?',(dataset_id,)).fetchone()
+            if row is None:return None
+            current=Dataset.model_validate_json(row[0])
+            if current.version!=request.expected_version:raise IdentityVersionConflictError(current.version)
+            candidate_rows=db.execute('SELECT body FROM identity_candidates WHERE dataset_id=? AND dataset_version=?',(dataset_id,current.version)).fetchall()
+            candidates=[IdentityCandidate.model_validate_json(item[0]) for item in candidate_rows]
+            if not any(
+                item.company_id==profile.id and item.report_year==request.report_year
+                and item.report_type==request.report_type and item.status in ('identified','conflict')
+                for item in candidates
+            ):
+                raise IdentityCandidateNotFoundError('confirmation has no matching document identity candidate')
+            new_version=current.version+1
+            updated=current.model_copy(update={
+                'company':profile.company_code,'company_id':profile.id,'year':request.report_year,
+                'company_profile_version':profile.profile_version,'industry_profile_id':profile.industry_profile_id,
+                'industry_profile_version':profile.industry_profile_version,
+                'version':new_version,'report_type':request.report_type,'identity_status':'confirmed',
+                'identity_confirmation_reason':request.reason,
+            })
+            db.execute('UPDATE datasets SET current_version=?,body=? WHERE id=?',(new_version,updated.model_dump_json(),dataset_id))
+            db.execute('INSERT INTO dataset_snapshots VALUES (?,?,?)',(dataset_id,new_version,updated.model_dump_json()))
+            db.execute('INSERT INTO dataset_sources(dataset_id,version,source_id) SELECT dataset_id,?,source_id FROM dataset_sources WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
+            for candidate in candidates:
+                if candidate.company_id==profile.id and candidate.report_year==request.report_year:
+                    candidate=candidate.model_copy(update={
+                        'status':'identified',
+                        'warnings':['identity_confirmed_by_user'],
+                    })
+                elif candidate.status in ('identified','conflict'):
+                    candidate=candidate.model_copy(update={
+                        'status':'conflict',
+                        'warnings':list(dict.fromkeys([*candidate.warnings,'identity_mismatch_after_user_confirmation'])),
+                    })
+                db.execute(
+                    'INSERT INTO identity_candidates VALUES (?,?,?,?)',
+                    (dataset_id,new_version,candidate.source_id,candidate.model_dump_json()),
+                )
+            for fact_row in db.execute('SELECT f.body FROM dataset_facts df JOIN facts f ON f.id=df.fact_id AND f.revision=df.revision WHERE df.dataset_id=? AND df.version=?',(dataset_id,current.version)).fetchall():
+                fact=Fact.model_validate_json(fact_row[0])
+                if fact.company==profile.company_code:
+                    db.execute('INSERT INTO dataset_facts VALUES (?,?,?,?)',(dataset_id,new_version,fact.id,fact.revision))
+            record={
+                'dataset_id':dataset_id,'from_version':current.version,'to_version':new_version,
+                'company_id':profile.id,'report_year':request.report_year,'report_type':request.report_type,
+                'reason':request.reason,'actor_id':'local','created_at':datetime.now(timezone.utc).isoformat(),
+            }
+            db.execute('INSERT INTO identity_confirmations VALUES (?,?,?,?,?)',(str(uuid4()),dataset_id,current.version,new_version,json.dumps(record,ensure_ascii=False,separators=(',',':'))))
+        return updated
     def get(self,table,id):
         if table not in ('sources','evidence','calculations','runs','scenarios'):raise ValueError('unknown table')
         with self.connect() as db:row=db.execute(f'SELECT body FROM {table} WHERE id=?',(id,)).fetchone()
@@ -227,8 +336,9 @@ class SQLiteRepository:
 
     def evidence_for_snapshot(self,dataset_id,version):
         with self.connect() as db:
-            rows=db.execute('SELECT e.body FROM evidence e JOIN dataset_sources ds ON ds.source_id=e.source_id WHERE ds.dataset_id=? AND ds.version=? ORDER BY e.id',(dataset_id,version)).fetchall()
-        return [Evidence.model_validate_json(row[0]) for row in rows]
+            allowed=self._identity_valid_source_ids(db,dataset_id,version)
+            rows=db.execute('SELECT e.source_id,e.body FROM evidence e JOIN dataset_sources ds ON ds.source_id=e.source_id WHERE ds.dataset_id=? AND ds.version=? ORDER BY e.id',(dataset_id,version)).fetchall()
+        return [Evidence.model_validate_json(body) for source_id,body in rows if allowed is None or source_id in allowed]
 
     def resume_run(self,id,expected_status,dataset_version,assumptions):
         with self.connect() as db:
@@ -268,6 +378,7 @@ class SQLiteRepository:
             db.execute('INSERT INTO dataset_sources(dataset_id,version,source_id) SELECT dataset_id,?,source_id FROM dataset_sources WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
             db.execute('INSERT INTO dataset_sources VALUES (?,?,?)',(dataset_id,new_version,source.id))
             db.execute('INSERT INTO dataset_facts(dataset_id,version,fact_id,revision) SELECT dataset_id,?,fact_id,revision FROM dataset_facts WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
+            db.execute('INSERT INTO identity_candidates(dataset_id,dataset_version,source_id,body) SELECT dataset_id,?,source_id,body FROM identity_candidates WHERE dataset_id=? AND dataset_version=?',(new_version,dataset_id,current.version))
         return SourceAttachment(dataset=updated,source=source)
     def facts(self,id,version):
         with self.connect() as db:
@@ -282,11 +393,13 @@ class SQLiteRepository:
         return Fact.model_validate_json(row[0])
     def validate_evidence_snapshot(self,dataset_id,version,evidence_ids):
         with self.connect() as db:
+            allowed=self._identity_valid_source_ids(db,dataset_id,version)
             for evidence_id in evidence_ids:
                 row=db.execute('SELECT source_id FROM evidence WHERE id=?',(evidence_id,)).fetchone()
                 if row is None:raise ScenarioEvidenceNotFoundError('assumption evidence does not exist')
                 linked=db.execute('SELECT 1 FROM dataset_sources WHERE dataset_id=? AND version=? AND source_id=?',(dataset_id,version,row[0])).fetchone()
-                if linked is None:raise ScenarioEvidenceScopeError('assumption evidence is outside the requested dataset snapshot')
+                if linked is None or (allowed is not None and row[0] not in allowed):
+                    raise ScenarioEvidenceScopeError('assumption evidence is outside the requested dataset snapshot')
     def save_calculations(self,calculations):
         with self.connect() as db:
             for calculation in calculations:
@@ -328,6 +441,15 @@ class SQLiteRepository:
             source_row=db.execute('SELECT body FROM sources WHERE id=?',(source_id,)).fetchone()
             if linked is None or source_row is None:raise FactScopeError('source is outside current dataset')
             source=Source.model_validate_json(source_row[0])
+            candidate=result.identity_candidate
+            if candidate is not None and candidate.source_id!=source_id:
+                raise FactScopeError('identity candidate source mismatch')
+            candidate_row=db.execute(
+                'SELECT body FROM identity_candidates WHERE dataset_id=? AND dataset_version=? AND source_id=?',
+                (dataset_id,current.version,source_id),
+            ).fetchone()
+            previous_candidate=IdentityCandidate.model_validate_json(candidate_row[0]) if candidate_row else None
+            candidate_changed=candidate is not None and candidate!=previous_candidate
             status=result.parse_status
             if source.parse_status=='parsed' and status!='failed':status='parsed'
             updated_source=source.model_copy(update={'parse_status':status})
@@ -340,6 +462,8 @@ class SQLiteRepository:
             candidates=[]
             for fact in result.facts:
                 if fact.status=='verified':raise ValueError('automatic extraction cannot verify facts')
+                if current.identity_status!='confirmed' or fact.company!=current.company:
+                    raise FactScopeError('candidate fact company does not match confirmed dataset identity')
                 key=self._fact_key(fact);prior=existing.get(key,[])
                 if not prior:
                     candidates.append(fact);existing[key]=[fact]
@@ -361,7 +485,7 @@ class SQLiteRepository:
                 if prior:
                     if Fact.model_validate_json(prior[0])!=fact:raise FactScopeError('fact id collision')
                 else:db.execute('INSERT INTO facts VALUES (?,?,?)',(fact.id,fact.revision,fact.model_dump_json()))
-            if not candidates:return SourceAttachment(dataset=current,source=updated_source)
+            if not candidates and not candidate_changed:return SourceAttachment(dataset=current,source=updated_source)
 
             new_version=current.version+1
             updated=current.model_copy(update={'version':new_version,'data_basis':'user_uploaded'})
@@ -369,6 +493,13 @@ class SQLiteRepository:
             db.execute('INSERT INTO dataset_snapshots VALUES (?,?,?)',(dataset_id,new_version,updated.model_dump_json()))
             db.execute('INSERT INTO dataset_sources(dataset_id,version,source_id) SELECT dataset_id,?,source_id FROM dataset_sources WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
             db.execute('INSERT INTO dataset_facts(dataset_id,version,fact_id,revision) SELECT dataset_id,?,fact_id,revision FROM dataset_facts WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
+            db.execute('INSERT INTO identity_candidates(dataset_id,dataset_version,source_id,body) SELECT dataset_id,?,source_id,body FROM identity_candidates WHERE dataset_id=? AND dataset_version=?',(new_version,dataset_id,current.version))
+            if candidate_changed:
+                db.execute(
+                    'INSERT INTO identity_candidates(dataset_id,dataset_version,source_id,body) VALUES (?,?,?,?) '
+                    'ON CONFLICT(dataset_id,dataset_version,source_id) DO UPDATE SET body=excluded.body',
+                    (dataset_id,new_version,source_id,candidate.model_dump_json()),
+                )
             for fact in candidates:db.execute('INSERT INTO dataset_facts VALUES (?,?,?,?)',(dataset_id,new_version,fact.id,fact.revision))
         return SourceAttachment(dataset=updated,source=updated_source)
     def get_current_fact_context(self,fact_id):
@@ -390,11 +521,13 @@ class SQLiteRepository:
             if updated.revision!=previous.revision+1:raise FactRevisionConflictError(previous.revision)
             if self._fact_key(updated)!=self._fact_key(previous) or updated.period_start!=previous.period_start or updated.period_kind!=previous.period_kind:
                 raise FactScopeError('correction changed fact identity')
+            allowed=self._identity_valid_source_ids(db,dataset_id,current.version)
             for evidence_id in updated.evidence_ids:
                 evidence_row=db.execute('SELECT source_id FROM evidence WHERE id=?',(evidence_id,)).fetchone()
                 if evidence_row is None:raise EvidenceScopeError('evidence not found')
                 linked=db.execute('SELECT 1 FROM dataset_sources WHERE dataset_id=? AND version=? AND source_id=?',(dataset_id,current.version,evidence_row[0])).fetchone()
-                if linked is None:raise EvidenceScopeError('evidence source is outside current dataset')
+                if linked is None or (allowed is not None and evidence_row[0] not in allowed):
+                    raise EvidenceScopeError('evidence source is outside the current identity scope')
             db.execute('INSERT INTO facts VALUES (?,?,?)',(updated.id,updated.revision,updated.model_dump_json()))
             new_version=current.version+1
             next_dataset=current.model_copy(update={'version':new_version})
@@ -402,6 +535,7 @@ class SQLiteRepository:
             db.execute('INSERT INTO dataset_snapshots VALUES (?,?,?)',(dataset_id,new_version,next_dataset.model_dump_json()))
             db.execute('INSERT INTO dataset_sources(dataset_id,version,source_id) SELECT dataset_id,?,source_id FROM dataset_sources WHERE dataset_id=? AND version=?',(new_version,dataset_id,current.version))
             db.execute('INSERT INTO dataset_facts(dataset_id,version,fact_id,revision) SELECT dataset_id,?,fact_id,revision FROM dataset_facts WHERE dataset_id=? AND version=? AND fact_id<>?',(new_version,dataset_id,current.version,updated.id))
+            db.execute('INSERT INTO identity_candidates(dataset_id,dataset_version,source_id,body) SELECT dataset_id,?,source_id,body FROM identity_candidates WHERE dataset_id=? AND dataset_version=?',(new_version,dataset_id,current.version))
             db.execute('INSERT INTO dataset_facts VALUES (?,?,?,?)',(dataset_id,new_version,updated.id,updated.revision))
             db.execute('INSERT INTO fact_corrections VALUES (?,?,?,?,?,?,?)',(str(uuid4()),updated.id,previous.revision,updated.revision,reason,'local',datetime.now(timezone.utc).isoformat()))
         return updated

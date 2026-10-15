@@ -19,7 +19,8 @@ class API(unittest.TestCase):
  def tearDown(self):self.client.close();self.tmp.cleanup()
  def check_error(self,response,status,code):
   self.assertEqual(response.status_code,status);e=ErrorResponse.model_validate(response.json());self.assertEqual(e.error.code,code);self.assertTrue(e.error.request_id)
- def test_health(self):self.assertEqual(self.client.get('/health').json()['stage'],'R5')
+ def test_health(self):
+  health=self.client.get('/health').json();self.assertEqual(health['stage'],'P2.1');self.assertEqual(health['schema_version'],'0.5.0')
  def test_facts(self):
   r=self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1');self.assertEqual(r.status_code,200);data=FactCollection.model_validate(r.json());self.assertEqual(len(data.items),30)
  def test_filter(self):self.assertEqual(len(self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=1&segment=power_battery').json()['items']),6)
@@ -45,18 +46,18 @@ class API(unittest.TestCase):
  def test_upload_versions_snapshot_and_content(self):
   body=pdf_bytes('versioned upload');expected_hash=hashlib.sha256(body).hexdigest()
   r=self.upload('demo-catl-2025',body,filename='../report.pdf',url='https://example.com/report.pdf',published_date='2026-09-30')
-  self.assertEqual(r.status_code,201);attachment=r.json();self.assertEqual(attachment['dataset']['version'],2);self.assertEqual(attachment['source']['filename'],'report.pdf');self.assertEqual(attachment['source']['sha256'],expected_hash);self.assertEqual(attachment['source']['parse_status'],'needs_review')
+  self.assertEqual(r.status_code,201);attachment=r.json();self.assertEqual(attachment['dataset']['version'],3);self.assertEqual(attachment['source']['filename'],'report.pdf');self.assertEqual(attachment['source']['sha256'],expected_hash);self.assertEqual(attachment['source']['parse_status'],'needs_review')
   self.assertEqual(set(self.client.get('/api/v1/datasets/demo-catl-2025?version=1').json()['source_ids']),{'catl-2024','catl-2025'})
   self.assertEqual(len(self.client.get('/api/v1/datasets/demo-catl-2025/facts?version=2').json()['items']),30)
   content=self.client.get(f"/api/v1/sources/{attachment['source']['id']}/content");self.assertEqual(content.status_code,200);self.assertEqual(content.content,body)
  def test_duplicate_upload_reuses_source_without_new_version(self):
   dataset=self.create_dataset();body=pdf_bytes('same')
   first=self.upload(dataset['id'],body).json();second=self.upload(dataset['id'],body).json()
-  self.assertEqual(first['source']['id'],second['source']['id']);self.assertEqual(first['dataset']['version'],2);self.assertEqual(second['dataset']['version'],2)
+  self.assertEqual(first['source']['id'],second['source']['id']);self.assertEqual(first['dataset']['version'],3);self.assertEqual(second['dataset']['version'],3)
  def test_cross_dataset_duplicate_reuses_source(self):
   one=self.create_dataset('one');two=self.create_dataset('two');body=pdf_bytes('shared')
   first=self.upload(one['id'],body).json();second=self.upload(two['id'],body).json()
-  self.assertEqual(first['source']['id'],second['source']['id']);self.assertEqual(second['dataset']['version'],2)
+  self.assertEqual(first['source']['id'],second['source']['id']);self.assertEqual(second['dataset']['version'],3)
  def test_scanned_pdf_requires_review(self):
   dataset=self.create_dataset();r=self.upload(dataset['id'],pdf_bytes(text=None));self.assertEqual(r.status_code,201);self.assertEqual(r.json()['source']['parse_status'],'needs_review')
  def test_invalid_pdf_rejected(self):

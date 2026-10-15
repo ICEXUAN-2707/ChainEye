@@ -1,5 +1,7 @@
+import type {Fact} from '../api/generated';
+
 // 展示用格式化。仅做单位换算与排版，不做权威财务计算（权威计算由后端 Python 沙箱完成）。
-export const companyLabels:Record<string,string>={CATL:'宁德时代'};
+export const companyLabels:Record<string,string>={CATL:'宁德时代',EVE:'亿纬锂能'};
 export function datasetLabel(d:{id:string;name:string;company:string;year:number}):string{
   return `${d.name} · ${companyLabels[d.company]??d.company} ${d.year} 年报 · ${d.id}`;
 }
@@ -19,10 +21,14 @@ export function fmtAmount(value:string|null|undefined,unit:'CNY'|'ratio'):string
   return `${n.toLocaleString('zh-CN',{maximumFractionDigits:2})} 元`;
 }
 
-// 原文披露值：raw_unit 为千元或百分数，保留原始口径展示。
-export function fmtRaw(raw:string|null|undefined,rawUnit:'CNY_thousand'|'percent'):string{
+// 原文披露值：保留报告中的元、千元或百分数口径，不在展示层改变数值。
+type RawUnit=Fact['raw_unit'];
+const rawUnitSuffix:Record<RawUnit,string>={CNY_yuan:'元',CNY_thousand:'千元',percent:'%'};
+
+export function fmtRaw(raw:string|null|undefined,rawUnit:RawUnit):string{
   if(raw===null||raw===undefined||raw==='')return '—';
-  return rawUnit==='percent'?`${raw}%`:`${raw} 千元`;
+  const separator=rawUnit==='percent'?'':' ';
+  return `${raw}${separator}${rawUnitSuffix[rawUnit]}`;
 }
 
 // 百分点（pp）已由后端按 *100 给出，前端不再乘 100，仅补正负号与保留两位。

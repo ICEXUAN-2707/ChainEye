@@ -3,6 +3,10 @@ from pydantic import Field, model_validator
 from chain_eye.domain.contracts import Contract, Fact, Evidence, Assumptions, Claim, Calculation, ScenarioResult, ErrorBody, AssumptionRecord, DecimalText
 
 from chain_eye.domain.datasets import DatasetCreate,Dataset,Source,SourceAttachment
+from chain_eye.domain.companies import (
+    CompanyProfile,CompanyCollection,IdentityCandidate,IdentityCandidateCollection,
+    IdentityConfirmation,CapabilityItem,CapabilityCollection,
+)
 class FactCollection(Contract):
     dataset_id: str
     dataset_version: int = Field(ge=1)

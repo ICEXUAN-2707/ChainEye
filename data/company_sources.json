@@ -1,0 +1,45 @@
+{
+  "schema_version": "1",
+  "retrieved_on": "2026-10-12",
+  "redistribution_note": "Official public disclosures are downloaded on demand for verification and are not redistributed in this repository without explicit permission.",
+  "reports": [
+    {
+      "id": "eve-2024-annual-report",
+      "company_id": "eve-energy",
+      "company_code": "EVE",
+      "legal_name": "惠州亿纬锂能股份有限公司",
+      "stock_code": "300014",
+      "cninfo_org_id": "9900008311",
+      "report_year": 2024,
+      "report_type": "annual_report",
+      "announcement_id": "1223125812",
+      "published_date": "2025-04-18",
+      "url": "https://static.cninfo.com.cn/finalpage/2025-04-18/1223125812.PDF",
+      "filename": "eve-2024.pdf",
+      "sha256": "06be1a045d1ec713113cdcf626abfa534e2068f358770d5940975818a5a538aa",
+      "bytes": 5988065,
+      "pages": 235,
+      "text_layer_pages": 235,
+      "validation_role": "adaptation"
+    },
+    {
+      "id": "eve-2025-annual-report",
+      "company_id": "eve-energy",
+      "company_code": "EVE",
+      "legal_name": "惠州亿纬锂能股份有限公司",
+      "stock_code": "300014",
+      "cninfo_org_id": "9900008311",
+      "report_year": 2025,
+      "report_type": "annual_report",
+      "announcement_id": "1225045391",
+      "published_date": "2026-03-28",
+      "url": "https://static.cninfo.com.cn/finalpage/2026-03-28/1225045391.PDF",
+      "filename": "eve-2025.pdf",
+      "sha256": "3bee0ca9a6232c60c53f195d078446a45fd4941bd997258b474cebe835eea3b8",
+      "bytes": 5815598,
+      "pages": 222,
+      "text_layer_pages": 222,
+      "validation_role": "held_out"
+    }
+  ]
+}

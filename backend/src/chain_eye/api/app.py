@@ -17,6 +17,7 @@ from chain_eye.adapters.deepseek import DeepSeekAdapter
 from chain_eye.application.errors import AppError
 from chain_eye.application.source_upload import MAX_PDF_BYTES,SourceUploadService,sha256_file
 from chain_eye.application.extraction import ExtractionService
+from chain_eye.application.company_identity import CompanyIdentityService
 from chain_eye.application.fact_review import FactReviewService
 from chain_eye.application.scenarios import ScenarioExecutionService
 from chain_eye.application.runs import RunExecutionService,RunWorker
@@ -33,14 +34,14 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None,logger=None):
     repo=SQLiteRepository(database_path(db_path),ROOT,upload_root(upload_dir))
     if seed:repo.seed()
     structured_logger=logger or JsonlLogger(log_path())
-    uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo)
+    uploader=SourceUploadService(repo);extraction=ExtractionService(repo);review=FactReviewService(repo);scenarios=ScenarioExecutionService(repo);identities=CompanyIdentityService(repo)
     runs=RunExecutionService(repo,llm or DeepSeekAdapter(),logger=structured_logger);reports=ReportService(repo);worker=RunWorker(repo,runs)
     @asynccontextmanager
     async def lifespan(_app):
         if repo.has_unfinished_runs():worker.submit()
         try:yield
         finally:worker.stop()
-    app=FastAPI(title='Chain Eye API',version='0.4.0',description='R5 persisted, traceable reports over immutable evidence-bound Run snapshots.',lifespan=lifespan)
+    app=FastAPI(title='Chain Eye API',version='0.5.0',description='P2.1 multi-company identity, capability and evidence-bound analysis contracts.',lifespan=lifespan)
     app.state.repository=repo;app.state.run_service=runs;app.state.report_service=reports;app.state.run_worker=worker
     app.state.structured_logger=structured_logger
     app.add_middleware(CORSMiddleware,allow_origins=['http://localhost:5173','http://127.0.0.1:5173'],allow_methods=['GET','POST','PATCH'],allow_headers=['Content-Type','Idempotency-Key'],allow_credentials=False)
@@ -98,7 +99,7 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None,logger=None):
         return v
     @app.get('/health',operation_id='health')
     def health():
-        result={'status':'ok','stage':'R5','mode':'local','schema_version':'0.4.0','data_basis':'reviewed_fixture_and_user_upload'}
+        result={'status':'ok','stage':'P2.1','mode':'local','schema_version':'0.5.0','data_basis':'reviewed_fixture_and_user_upload'}
         nonce=os.getenv('CHAIN_EYE_INSTANCE_NONCE')
         if nonce:result['instance_nonce']=nonce
         return result
@@ -109,6 +110,16 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None,logger=None):
         items,next_offset=repo.list_datasets(offset,limit);return DatasetCollection(items=items,next_offset=next_offset)
     @app.get('/api/v1/datasets/{id}',response_model=Dataset,responses=RESPONSES,operation_id='getDataset')
     def get_dataset(id:str,version:int|None=Query(default=None,ge=1)):return required_dataset(id,version)
+    @app.get('/api/v1/companies',response_model=CompanyCollection,responses=RESPONSES,operation_id='listCompanies')
+    def list_companies(offset:int=Query(default=0,ge=0),limit:int=Query(default=50,ge=1,le=200)):
+        items,next_offset=repo.list_companies(offset,limit);return CompanyCollection(items=items,next_offset=next_offset)
+    @app.get('/api/v1/datasets/{id}/identity-candidates',response_model=IdentityCandidateCollection,responses=RESPONSES,operation_id='listIdentityCandidates')
+    def identity_candidates(id:str,version:int=Query(ge=1)):return identities.candidates(id,version)
+    @app.post('/api/v1/datasets/{id}/identity-confirmations',response_model=Dataset,status_code=201,responses=RESPONSES,operation_id='confirmDatasetIdentity')
+    def confirm_identity(id:str,body:IdentityConfirmation):return identities.confirm(id,body)
+    @app.get('/api/v1/datasets/{id}/capabilities',response_model=CapabilityCollection,responses=RESPONSES,operation_id='getDatasetCapabilities')
+    def capabilities(id:str,version:int=Query(ge=1),industry_profile_version:int=Query(ge=1)):
+        return identities.capabilities(id,version,industry_profile_version)
     @app.post('/api/v1/datasets/{id}/sources',response_model=SourceAttachment,status_code=201,responses=RESPONSES,operation_id='uploadSource')
     async def upload_source(id:str,file:UploadFile=File(),url:str|None=Form(default=None),published_date:str|None=Form(default=None)):
         required_dataset(id)
@@ -134,7 +145,7 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None,logger=None):
     def correct_fact(id:str,body:FactCorrection):return review.correct(id,body)
     @app.post('/api/v1/runs',response_model=Run,status_code=202,responses=RESPONSES,operation_id='createRun')
     def create_run(body:RunCreate,idempotency_key:Annotated[str,Header(min_length=8,max_length=128,alias='Idempotency-Key')]):
-        required_dataset(body.dataset_id,body.dataset_version);run,created=runs.create_with_status(body,idempotency_key)
+        identities.require_runnable_identity(body.dataset_id,body.dataset_version);run,created=runs.create_with_status(body,idempotency_key)
         if created:worker.submit()
         return run
     @app.get('/api/v1/runs/{id}',response_model=Run,responses=RESPONSES,operation_id='getRun')
@@ -152,6 +163,7 @@ def create_app(db_path=None,seed=True,upload_dir=None,llm=None,logger=None):
         run=runs.resume(id,body);worker.submit();return run
     @app.post('/api/v1/scenarios',response_model=ScenarioResult,status_code=201,responses=RESPONSES,operation_id='createScenario')
     def scenario(body:ScenarioRequest,idempotency_key:Annotated[str,Header(min_length=8,max_length=128,alias='Idempotency-Key')]):
+        identities.require_runnable_identity(body.dataset_id,body.dataset_version)
         return scenarios.execute(body,idempotency_key)
     @app.get('/api/v1/evidence/{id}',response_model=Evidence,responses=RESPONSES,operation_id='getEvidence')
     def evidence(id:str):return required('evidence',id)

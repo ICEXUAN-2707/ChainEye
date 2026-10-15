@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Chain Eye API",
-    "description": "R5 persisted, traceable reports over immutable evidence-bound Run snapshots.",
-    "version": "0.4.0"
+    "description": "P2.1 multi-company identity, capability and evidence-bound analysis contracts.",
+    "version": "0.5.0"
   },
   "paths": {
     "/health": {
@@ -270,6 +270,456 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Dataset"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "local access only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "budget exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/companies": {
+      "get": {
+        "summary": "List Companies",
+        "operationId": "listCompanies",
+        "parameters": [
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Offset"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 200,
+              "minimum": 1,
+              "default": 50,
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompanyCollection"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "local access only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "budget exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/{id}/identity-candidates": {
+      "get": {
+        "summary": "Identity Candidates",
+        "operationId": "listIdentityCandidates",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityCandidateCollection"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "local access only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "budget exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/{id}/identity-confirmations": {
+      "post": {
+        "summary": "Confirm Identity",
+        "operationId": "confirmDatasetIdentity",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/IdentityConfirmation"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Dataset"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "local access only",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "invalid input",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "budget exceeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "internal failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "provider unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/{id}/capabilities": {
+      "get": {
+        "summary": "Capabilities",
+        "operationId": "getDatasetCapabilities",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Id"
+            }
+          },
+          {
+            "name": "version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Version"
+            }
+          },
+          {
+            "name": "industry_profile_version",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "title": "Industry Profile Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilityCollection"
                 }
               }
             }
@@ -1995,6 +2445,124 @@
         ],
         "title": "Calculation"
       },
+      "CapabilityCollection": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "dataset_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Dataset Version"
+          },
+          "company_id": {
+            "type": "string",
+            "enum": [
+              "catl",
+              "eve-energy"
+            ],
+            "title": "Company Id"
+          },
+          "industry_profile_id": {
+            "type": "string",
+            "title": "Industry Profile Id"
+          },
+          "industry_profile_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Industry Profile Version"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CapabilityItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "dataset_version",
+          "company_id",
+          "industry_profile_id",
+          "industry_profile_version",
+          "items"
+        ],
+        "title": "CapabilityCollection"
+      },
+      "CapabilityItem": {
+        "properties": {
+          "module_id": {
+            "type": "string",
+            "enum": [
+              "M1",
+              "M2",
+              "M3",
+              "M4",
+              "M5"
+            ],
+            "title": "Module Id"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "needs_review",
+              "missing_data",
+              "unsupported",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "reason_code": {
+            "type": "string",
+            "title": "Reason Code"
+          },
+          "required_inputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Required Inputs"
+          },
+          "missing_inputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Missing Inputs"
+          },
+          "evidence_gaps": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Gaps"
+          },
+          "supported_actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Supported Actions"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "module_id",
+          "status",
+          "reason_code",
+          "required_inputs",
+          "missing_inputs",
+          "evidence_gaps",
+          "supported_actions"
+        ],
+        "title": "CapabilityItem"
+      },
       "Claim": {
         "properties": {
           "id": {
@@ -2077,6 +2645,142 @@
         ],
         "title": "Claim"
       },
+      "CompanyCollection": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CompanyProfile"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_offset": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Offset"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "items",
+          "next_offset"
+        ],
+        "title": "CompanyCollection"
+      },
+      "CompanyProfile": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "catl",
+              "eve-energy"
+            ],
+            "title": "Id"
+          },
+          "company_code": {
+            "type": "string",
+            "enum": [
+              "CATL",
+              "EVE"
+            ],
+            "title": "Company Code"
+          },
+          "legal_name": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Legal Name"
+          },
+          "aliases": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Aliases"
+          },
+          "security_ids": {
+            "items": {
+              "$ref": "#/components/schemas/SecurityIdentifier"
+            },
+            "type": "array",
+            "title": "Security Ids"
+          },
+          "industry_profile_id": {
+            "type": "string",
+            "const": "battery-manufacturing-cn-v1",
+            "title": "Industry Profile Id"
+          },
+          "industry_profile_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Industry Profile Version"
+          },
+          "profile_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Profile Version"
+          },
+          "supported_report_years": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Supported Report Years"
+          },
+          "report_name_patterns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Report Name Patterns"
+          },
+          "segment_aliases": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "enum": [
+                "power_battery",
+                "energy_storage"
+              ]
+            },
+            "type": "object",
+            "title": "Segment Aliases"
+          },
+          "source_policy": {
+            "type": "string",
+            "const": "official_public_disclosure_attribution_required",
+            "title": "Source Policy"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "company_code",
+          "legal_name",
+          "aliases",
+          "security_ids",
+          "industry_profile_id",
+          "industry_profile_version",
+          "profile_version",
+          "supported_report_years",
+          "report_name_patterns",
+          "segment_aliases",
+          "source_policy"
+        ],
+        "title": "CompanyProfile"
+      },
       "Dataset": {
         "properties": {
           "id": {
@@ -2089,7 +2793,10 @@
           },
           "company": {
             "type": "string",
-            "const": "CATL",
+            "enum": [
+              "CATL",
+              "EVE"
+            ],
             "title": "Company"
           },
           "year": {
@@ -2124,6 +2831,54 @@
               "user_uploaded"
             ],
             "title": "Data Basis"
+          },
+          "company_id": {
+            "type": "string",
+            "enum": [
+              "catl",
+              "eve-energy"
+            ],
+            "title": "Company Id"
+          },
+          "company_profile_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Company Profile Version"
+          },
+          "industry_profile_id": {
+            "type": "string",
+            "const": "battery-manufacturing-cn-v1",
+            "title": "Industry Profile Id"
+          },
+          "industry_profile_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Industry Profile Version"
+          },
+          "report_type": {
+            "type": "string",
+            "const": "annual_report",
+            "title": "Report Type"
+          },
+          "identity_status": {
+            "type": "string",
+            "enum": [
+              "confirmed",
+              "conflict",
+              "unconfirmed"
+            ],
+            "title": "Identity Status"
+          },
+          "identity_confirmation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Identity Confirmation Reason"
           }
         },
         "additionalProperties": false,
@@ -2136,7 +2891,14 @@
           "version",
           "source_ids",
           "created_at",
-          "data_basis"
+          "data_basis",
+          "company_id",
+          "company_profile_version",
+          "industry_profile_id",
+          "industry_profile_version",
+          "report_type",
+          "identity_status",
+          "identity_confirmation_reason"
         ],
         "title": "Dataset"
       },
@@ -2179,7 +2941,10 @@
           },
           "company": {
             "type": "string",
-            "const": "CATL",
+            "enum": [
+              "CATL",
+              "EVE"
+            ],
             "title": "Company"
           },
           "year": {
@@ -2531,6 +3296,7 @@
           "raw_unit": {
             "type": "string",
             "enum": [
+              "CNY_yuan",
               "CNY_thousand",
               "percent"
             ],
@@ -2696,6 +3462,184 @@
           "reason"
         ],
         "title": "FactCorrection"
+      },
+      "IdentityCandidate": {
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "title": "Source Id"
+          },
+          "company_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "catl",
+                  "eve-energy"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Id"
+          },
+          "company_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "CATL",
+                  "EVE"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Company Code"
+          },
+          "legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Legal Name"
+          },
+          "report_year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Year"
+          },
+          "report_type": {
+            "type": "string",
+            "enum": [
+              "annual_report",
+              "unknown"
+            ],
+            "title": "Report Type"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "identified",
+              "unrecognized",
+              "ambiguous",
+              "conflict"
+            ],
+            "title": "Status"
+          },
+          "evidence_pages": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Evidence Pages"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source_id",
+          "company_id",
+          "company_code",
+          "legal_name",
+          "report_year",
+          "report_type",
+          "status",
+          "evidence_pages",
+          "warnings"
+        ],
+        "title": "IdentityCandidate"
+      },
+      "IdentityCandidateCollection": {
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "title": "Dataset Id"
+          },
+          "dataset_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Dataset Version"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/IdentityCandidate"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "dataset_id",
+          "dataset_version",
+          "items"
+        ],
+        "title": "IdentityCandidateCollection"
+      },
+      "IdentityConfirmation": {
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Expected Version"
+          },
+          "company_id": {
+            "type": "string",
+            "enum": [
+              "catl",
+              "eve-energy"
+            ],
+            "title": "Company Id"
+          },
+          "report_year": {
+            "type": "integer",
+            "maximum": 2100.0,
+            "minimum": 2000.0,
+            "title": "Report Year"
+          },
+          "report_type": {
+            "type": "string",
+            "const": "annual_report",
+            "title": "Report Type"
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 1000,
+            "minLength": 1,
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "expected_version",
+          "company_id",
+          "report_year",
+          "report_type",
+          "reason"
+        ],
+        "title": "IdentityConfirmation"
       },
       "Report": {
         "properties": {
@@ -3194,6 +4138,37 @@
           "limitations"
         ],
         "title": "ScenarioResult"
+      },
+      "SecurityIdentifier": {
+        "properties": {
+          "market": {
+            "type": "string",
+            "const": "SZSE",
+            "title": "Market"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "stock_code",
+              "cninfo_org_id"
+            ],
+            "title": "Kind"
+          },
+          "value": {
+            "type": "string",
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "market",
+          "kind",
+          "value"
+        ],
+        "title": "SecurityIdentifier"
       },
       "Source": {
         "properties": {

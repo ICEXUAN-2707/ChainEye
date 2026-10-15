@@ -1,4 +1,4 @@
-import type {DatasetCollection, FactCollection, Evidence, ErrorResponse, SourceAttachment, Fact, FactCorrection, Source, Dataset, DatasetCreate, ScenarioRequest, ScenarioResult, Calculation, RunCreate, Run, EventCollection, ResumeRequest, Report} from './generated';
+import type {CapabilityCollection,CompanyCollection,DatasetCollection,FactCollection,Evidence,ErrorResponse,SourceAttachment,Fact,FactCorrection,Source,Dataset,DatasetCreate,IdentityCandidateCollection,IdentityConfirmation,ScenarioRequest,ScenarioResult,Calculation,RunCreate,Run,EventCollection,ResumeRequest,Report} from './generated';
 
 export const BASE_URL='http://127.0.0.1:8000';
 
@@ -36,19 +36,32 @@ function json(method:'POST'|'PATCH',body:unknown):RequestInit{
 export const api={
   datasets:(signal?:AbortSignal)=>request<DatasetCollection>('/api/v1/datasets',{signal}),
   dataset:(id:string,signal?:AbortSignal)=>request<Dataset>(`/api/v1/datasets/${encodeURIComponent(id)}`,{signal}),
-  createDataset:(body:DatasetCreate)=>request<Dataset>('/api/v1/datasets',json('POST',body)),
+  createDataset:(body:DatasetCreate,signal?:AbortSignal)=>request<Dataset>('/api/v1/datasets',{...json('POST',body),signal}),
+  companies:(opts?:{offset?:number;limit?:number;signal?:AbortSignal})=>{
+    const p=new URLSearchParams({offset:String(opts?.offset??0),limit:String(opts?.limit??50)});
+    return request<CompanyCollection>(`/api/v1/companies?${p.toString()}`,{signal:opts?.signal});
+  },
+  identityCandidates:(id:string,version:number,signal?:AbortSignal)=>{
+    const p=new URLSearchParams({version:String(version)});
+    return request<IdentityCandidateCollection>(`/api/v1/datasets/${encodeURIComponent(id)}/identity-candidates?${p.toString()}`,{signal});
+  },
+  confirmDatasetIdentity:(id:string,body:IdentityConfirmation,signal?:AbortSignal)=>request<Dataset>(`/api/v1/datasets/${encodeURIComponent(id)}/identity-confirmations`,{...json('POST',body),signal}),
+  datasetCapabilities:(id:string,version:number,industryProfileVersion:number,signal?:AbortSignal)=>{
+    const p=new URLSearchParams({version:String(version),industry_profile_version:String(industryProfileVersion)});
+    return request<CapabilityCollection>(`/api/v1/datasets/${encodeURIComponent(id)}/capabilities?${p.toString()}`,{signal});
+  },
   facts:(id:string,version:number,opts?:{status?:string;segment?:string;signal?:AbortSignal})=>{
     const p=new URLSearchParams({version:String(version)});
     if(opts?.status)p.set('status',opts.status);
     if(opts?.segment)p.set('segment',opts.segment);
     return request<FactCollection>(`/api/v1/datasets/${encodeURIComponent(id)}/facts?${p.toString()}`,{signal:opts?.signal});
   },
-  uploadSource:(id:string,file:File,opts?:{url?:string;published_date?:string})=>{
+  uploadSource:(id:string,file:File,opts?:{url?:string;published_date?:string;signal?:AbortSignal})=>{
     const fd=new FormData();
     fd.append('file',file);
     if(opts?.url)fd.append('url',opts.url);
     if(opts?.published_date)fd.append('published_date',opts.published_date);
-    return request<SourceAttachment>(`/api/v1/datasets/${encodeURIComponent(id)}/sources`,{method:'POST',body:fd});
+    return request<SourceAttachment>(`/api/v1/datasets/${encodeURIComponent(id)}/sources`,{method:'POST',body:fd,signal:opts?.signal});
   },
   correctFact:(id:string,body:FactCorrection)=>request<Fact>(`/api/v1/facts/${encodeURIComponent(id)}`,json('PATCH',body)),
   createScenario:(body:ScenarioRequest,idempotencyKey:string)=>request<ScenarioResult>('/api/v1/scenarios',{method:'POST',headers:{'Content-Type':'application/json','Idempotency-Key':idempotencyKey},body:JSON.stringify(body)}),

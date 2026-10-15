@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "SecurityIdentifier": {
+      "additionalProperties": false,
+      "properties": {
+        "market": {
+          "const": "SZSE",
+          "title": "Market",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "stock_code",
+            "cninfo_org_id"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "maxLength": 32,
+          "minLength": 1,
+          "title": "Value",
+          "type": "string"
+        }
+      },
+      "required": [
+        "market",
+        "kind",
+        "value"
+      ],
+      "title": "SecurityIdentifier",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "id": {
+      "enum": [
+        "catl",
+        "eve-energy"
+      ],
+      "title": "Id",
+      "type": "string"
+    },
+    "company_code": {
+      "enum": [
+        "CATL",
+        "EVE"
+      ],
+      "title": "Company Code",
+      "type": "string"
+    },
+    "legal_name": {
+      "maxLength": 100,
+      "minLength": 1,
+      "title": "Legal Name",
+      "type": "string"
+    },
+    "aliases": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Aliases",
+      "type": "array"
+    },
+    "security_ids": {
+      "items": {
+        "$ref": "#/$defs/SecurityIdentifier"
+      },
+      "title": "Security Ids",
+      "type": "array"
+    },
+    "industry_profile_id": {
+      "const": "battery-manufacturing-cn-v1",
+      "title": "Industry Profile Id",
+      "type": "string"
+    },
+    "industry_profile_version": {
+      "minimum": 1,
+      "title": "Industry Profile Version",
+      "type": "integer"
+    },
+    "profile_version": {
+      "minimum": 1,
+      "title": "Profile Version",
+      "type": "integer"
+    },
+    "supported_report_years": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Supported Report Years",
+      "type": "array"
+    },
+    "report_name_patterns": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Report Name Patterns",
+      "type": "array"
+    },
+    "segment_aliases": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "propertyNames": {
+        "enum": [
+          "power_battery",
+          "energy_storage"
+        ]
+      },
+      "title": "Segment Aliases",
+      "type": "object"
+    },
+    "source_policy": {
+      "const": "official_public_disclosure_attribution_required",
+      "title": "Source Policy",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "company_code",
+    "legal_name",
+    "aliases",
+    "security_ids",
+    "industry_profile_id",
+    "industry_profile_version",
+    "profile_version",
+    "supported_report_years",
+    "report_name_patterns",
+    "segment_aliases",
+    "source_policy"
+  ],
+  "title": "CompanyProfile",
+  "type": "object"
+}
