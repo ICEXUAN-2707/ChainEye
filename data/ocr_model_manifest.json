@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "profile_id": "rapidai-cpu-onnx-v1",
+  "created_at": "2026-10-15",
+  "runtime": {
+    "rapidocr": "3.9.2",
+    "rapid-table": "3.0.0",
+    "rapid-layout": "1.2.1",
+    "onnxruntime": "1.23.2"
+  },
+  "models": [
+    {
+      "role": "text_detection",
+      "name": "PP-OCRv6_det_small.onnx",
+      "sha256": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+      "bytes": 9929594,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/det/PP-OCRv6_det_small.onnx"
+    },
+    {
+      "role": "text_direction",
+      "name": "ch_ppocr_mobile_v2.0_cls_mobile.onnx",
+      "sha256": "e47acedf663230f8863ff1ab0e64dd2d82b838fceb5957146dab185a89d6215c",
+      "bytes": 585532,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv4/cls/ch_ppocr_mobile_v2.0_cls_mobile.onnx"
+    },
+    {
+      "role": "text_recognition",
+      "name": "PP-OCRv6_rec_small.onnx",
+      "sha256": "6f327246b50388f3c176ae304bd95767ea6dc0c9ae92153ef8cbe210b3c14884",
+      "bytes": 21234383,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidOCR/resolve/v3.9.2/onnx/PP-OCRv6/rec/PP-OCRv6_rec_small.onnx"
+    },
+    {
+      "role": "table_structure",
+      "name": "slanet-plus.onnx",
+      "sha256": "d57a942af6a2f57d6a4a0372573c696a2379bf5857c45e2ac69993f3b334514b",
+      "bytes": 7758305,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidTable/resolve/v2.0.0/slanet-plus.onnx"
+    },
+    {
+      "role": "document_layout",
+      "name": "pp_doc_layoutv3.onnx",
+      "sha256": "250dbad1dfb9e4983fab75e1bf5085cd56ec3f41d5c7d0f8623ec74856e7aa67",
+      "bytes": 130502330,
+      "source": "https://www.modelscope.cn/models/RapidAI/RapidLayout/resolve/v1.2.0/onnx/pp_doc_layout/pp_doc_layoutv3.onnx"
+    }
+  ],
+  "license_review": {
+    "wrapper_code": "Apache-2.0",
+    "model_notice_status": "needs_human_legal_confirmation",
+    "note": "The pinned RapidOCR v3.9.2 source tag does not contain the newer MODEL_LICENSES.md notice. Do not redistribute weights until their upstream-derived terms are confirmed."
+  }
+}
